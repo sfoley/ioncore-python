@@ -13,6 +13,7 @@ from twisted.internet import defer
 from ion.agents.resource_agent import ResourceAgent
 from ion.agents.resource_agent import ResourceAgentClient
 from ion.core.exception import ReceivedError
+from ion.services.dm.distribution.pubsub_service import DataPubsubClient
 from ion.data.dataobject import ResourceReference
 from ion.core.process.process import Process, ProcessClient
 from ion.resources.ipaa_resource_descriptions import InstrumentAgentResourceInstance
@@ -24,6 +25,13 @@ ci_commands = 'ci_commands'
 ci_parameters = 'ci_parameters'
 instrument_commands = 'instrument_commands'
 instrument_parameters = 'instrument_parameters'
+
+# parameter names for all instrument agents
+ci_param_list = {
+    "DataTopics":"DataTopics",
+    "EventTopics":"EventTopics",
+    "StateTopics":"StateTopics",
+}
 
 # CI parameter key constant
 driver_address = 'driver_address'
@@ -184,8 +192,35 @@ class InstrumentAgent(ResourceAgent):
     Child instrument agents should supply instrument-specific getTranslator
     and getCapabilities routines.
     """
-
+    
+    """
+    The driver client to communicate with the child driver
+    """
     driver_client = None
+    
+    """
+    A dictionary of the topics where data is published, indexed by transducer
+    name or "Device" for the whole device. Gets set initially by
+    subclass, then at runtime by user as needed.
+    """
+    output_topics = None
+
+    """
+    A dictionary of the topics where events are published, indexed by
+    transducer name or "Device" for the whole device. Gets set initially by
+    subclass, then at runtime by user as needed.
+    """
+    event_topics = None
+
+    """
+    A dictionary of the topics where state changes are published, indexed by
+    transducer name or "Device" for the whole device. Gets set initially by
+    subclass, then at runtime by user as needed.
+    """
+    state_topics = None
+
+    def plc_init(self):
+        self.pubsub_client = DataPubsubClient(proc=self)
 
     @defer.inlineCallbacks
     def op_get_translator(self, content, headers, msg):
@@ -241,6 +276,13 @@ class InstrumentAgent(ResourceAgent):
         # get data somewhere, or just punt this lower in the class hierarchy
         if ("driver_address" in content):
             response['driver_address'] = str(self.driver_client.target)
+        
+        if (self.ci_param_list['OutputTopics'] in content):
+            response[self.ci_param_list['OutputTopics']] = self.output_topics
+        if (self.ci_param_list['StateTopics'] in content):
+            response[self.ci_param_list['StateTopics']] = self.state_topics
+        if (self.ci_param_list['ErrorTopics'] in content):
+            response[self.ci_param_list['ErrorTopics']] = self.error_topics  
 
         if response != {}:
             yield self.reply_ok(msg, response)
@@ -382,6 +424,40 @@ class InstrumentAgent(ResourceAgent):
             yield self.reply_ok(msg, response['value'])
         except ReceivedError, re:
             yield self.reply_err(msg, re.msg_content['value'])
+
+    @defer.inlineCallbacks
+    def op_publish(self, content, headers, msg):
+        """
+        Collect data from the driver (and only the driver) to publish to the
+        correct topic.
+        @param content A dict including: a Type string of either "StateChange",
+          "ConfigChange", "Error", or "Data", and a Value string with the
+          data or message that is to be published. Must also have "Transducer"
+          to specify the transducer doing the chagne.
+        """
+        assert(isinstance(content, list))
+        log.debug("Agent is publishing...")
+        log.debug("sender: %s, child_procs: %s, content: %s",
+                  headers["sender-name"], self.child_procs, content)
+        if (headers["sender-name"] in self.child_procs):
+            if (content["Value"] == "Data"):
+                result = yield self.pubsub_client.publish(self.sup,
+                            self.data_topics[content["Transducer"]].reference(),
+                            content["Value"])
+            elif ((content["Value"] == "Error")
+                or (content["Value"] == "ConfigChange")):
+                result = yield self.pubsub_client.publish(self.sup,
+                            self.event_topics[content["Transducer"]].reference(),
+                            content["Value"])
+            elif (content["Value"] == "StateChange"):
+                result = yield self.pubsub_client.publish(self.sup,
+                            self.state_topics[content["Transducer"]].reference(),
+                                              content["Value"])
+        else:
+            yield self.reply_err(msg,
+                                 "publish invoked from non-child process")
+        log.debug("publish result: %s", result)
+        # return something...like maybe result?
 
 class InstrumentAgentClient(ResourceAgentClient):
     """

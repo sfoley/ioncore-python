@@ -67,8 +67,6 @@ class SBE49InstrumentDriver(InstrumentDriver):
         self.instrument = None
         self.command = None
         self.setConnected(False)
-        self.setTopicDefined(False)
-        self.publish_to = None
         self.dataQueue = []
         self.cmdQueue = []
         self.proto = None
@@ -324,7 +322,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
             # send this up to the agent to publish.
             data = self.dequeueData()            
             log.debug("stateConnected() Calling publish.")
-            self.publish(data, self.publish_to)
+            self.publish("StateChange", "Device", data)
             if 'S>' in data:
                 caller.stateTran(self.statePrompted)
             else:
@@ -374,7 +372,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
             # send this up to the agent to publish.
             data = self.dequeueData()            
             log.debug("statePrompted() Calling publish.")
-            self.publish(data, self.publish_to)
+            self.publish("StateChange", "Device", data)
             # TODO
             # Use CONSTANT STRING HERE
             # What if we go back to connected every time??? Don't think this
@@ -403,19 +401,19 @@ class SBE49InstrumentDriver(InstrumentDriver):
         self.instrument_ipport = self.spawn_args.get('ipport', 9000)
         #self.instrument_ipaddr = self.spawn_args.get('ipaddr', "137.110.112.119")
         #self.instrument_ipport = self.spawn_args.get('ipport', 4001)
-
+        
         # DHE Testing HSM
         log.debug("!!!!!!!!!!!!!!!!!! Calling onStart!")
         self.hsm.onStart(self.idle)
 
-        yield self._configure_driver(self.spawn_args)
+        self._configure_driver(self.spawn_args)
 
-        log.info("INIT DRIVER for instrument ID=%s, ipaddr=%s, port=%s, publish-to=%s" % (
-            self.instrument_id, self.instrument_ipaddr, self.instrument_ipport, self.publish_to))
+        log.info("INIT DRIVER for instrument ID=%s, ipaddr=%s, port=%s" % (
+            self.instrument_id, self.instrument_ipaddr, self.instrument_ipport))
 
-        self.iaclient = InstrumentAgentClient(proc=self, target=self.proc_supid)
+#        self.iaclient = InstrumentAgentClient(proc=self, target=self.proc_supid)
 
-        log.debug("Instrument driver initialized")
+#        log.debug("Instrument driver initialized")
 
         log.debug("!!!!!!!!!!! Sending configured event");
         self.hsm.onEvent('configured');
@@ -429,13 +427,6 @@ class SBE49InstrumentDriver(InstrumentDriver):
 
     def setConnected(self, value):
         self.connected = value;
-
-    def isTopicDefined(self):
-        return self.topicDefined
-
-    def setTopicDefined(self, value):
-        log.info("*******setting topicDefined to %s:" %str(value))
-        self.topicDefined = value;
 
     def setAgentService(self, agent):
         self.agent = agent
@@ -545,27 +536,19 @@ class SBE49InstrumentDriver(InstrumentDriver):
         self.hsm.onEvent('eventPromptReceived')
 
 
-    @defer.inlineCallbacks
-    def publish(self, data, topic):
+    @defer.inlineCallbacks    
+    def publish(self, topic, transducer, data):
         """
-        @brief Publish the given data to the given topic.
-        @param data The data to publish
-        @param topic The topic to which to publish.  Currently this is not the
-        topic as defined by pubsub.
-        @retval none
+        Collect some publishable information to hand back to the agent for
+        publishing
+        @param topic The type of topic that is to be published to. Should be one
+        of "StateChange", "ConfigChange", "Error", or "Data".
+        @param transducer The transducer name to indicate which queue to publish on
+        @param data The message to be published
         """
-        log.debug("publish()")
-        if self.isTopicDefined() == True:
-
-            # Create and send a data message
-            result = yield self.dpsc.publish(self, self.topic.reference(), data)
-            if result:
-                log.info('Published Message')
-            else:
-                log.info('Failed to Published Message')
-        else:
-            log.info("NOT READY TO PUBLISH")
-
+        log.debug("driver publish()")
+        # send it to our supervisor
+        yield self.send(self.proc_supid, publish, {"Type":topic, "Transducer":transducer, "Value":data})
 
     @defer.inlineCallbacks
     def op_initialize(self, content, headers, msg):
@@ -721,17 +704,6 @@ class SBE49InstrumentDriver(InstrumentDriver):
             self.instrument_ipport = params['ipport']
         else:
             log.debug("%%%%%%%% No ipport in params: defaulting to: %s" %self.instrument_ipport)
-            
-        if 'publish-to' in params:
-            self.publish_to = params['publish-to']
-            log.debug("Configured publish-to=" + self.publish_to)
-            self.setTopicDefined(True)
-            self.dpsc = DataPubsubClient(proc=self)
-            self.topic = ResourceReference(RegistryIdentity=self.publish_to, RegistryBranch='master')
-            self.publisher = PublisherResource.create('Test Publisher', self, self.topic, 'DataObject')
-            self.publisher = yield self.dpsc.define_publisher(self.publisher)
-        else:
-            log.debug("%%%%%%%% No publish-to in params")
 
 class SBE49InstrumentDriverClient(InstrumentDriverClient):
     """

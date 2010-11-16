@@ -22,6 +22,7 @@ from ion.test.iontest import IonTestCase
 from ion.agents.instrumentagents import instrument_agent as IA
 from ion.services.coi.agent_registry import AgentRegistryClient
 from ion.resources.ipaa_resource_descriptions import InstrumentAgentResourceInstance
+from ion.resources.dm_resource_descriptions import SubscriptionResource
 from ion.agents.instrumentagents.SBE49_constants import ci_commands as IACICommands
 from ion.agents.instrumentagents.SBE49_constants import ci_parameters as IACIParameters
 from ion.agents.instrumentagents.SBE49_constants import instrument_commands as IAInstCommands
@@ -43,12 +44,13 @@ class TestInstrumentAgent(IonTestCase):
             {'name':'pubsub_service','module':'ion.services.dm.distribution.pubsub_service','class':'DataPubsubService'},
             {'name':'agent_registry',
              'module':'ion.services.coi.agent_registry',
-             'class':'ResourceRegistryService'},
+             'class':'AgentRegistryService'},
             {'name':'testSBE49IA',
              'module':'ion.agents.instrumentagents.SBE49_IA',
              'class':'SBE49InstrumentAgent'},
         ]
         self.sup = yield self._spawn_processes(processes)
+        log.debug("*** Made it past spawn")
         self.svc_id = yield self.sup.get_child_id('testSBE49IA')
         self.reg_id = yield self.sup.get_child_id('agent_registry')
 
@@ -62,6 +64,12 @@ class TestInstrumentAgent(IonTestCase):
 
     @defer.inlineCallbacks
     def tearDown(self):
+        child_id = yield self.sup.get_child_id('pubsub_service')
+        pubsub = self._get_procinstance(child_id)
+        pubsub.reg.clear_registry()
+        
+        yield pu.asleep(1)
+        
         yield self._stop_container()
 
     @defer.inlineCallbacks
@@ -119,7 +127,7 @@ class TestInstrumentAgent(IonTestCase):
                 response = yield self.IAClient.set_to_instrument({'baudrate': 19200,
                                                     'badvalue': 1})
                 self.fail("ReceivedError expected")
-            except ReceivedError, re:
+            except ReceivedError:
                 pass
 
         finally:
@@ -243,3 +251,35 @@ class TestInstrumentAgent(IonTestCase):
         #xlateFn = yield self.IAClient.getTranslator()
         #self.assert_(inspect.isroutine(xlateFn))
         #self.assert_(xlateFn('foo') == 'foo')
+        
+    @defer.inlineCallbacks
+    def test_publish(self):
+        """
+        Test the ability to publish events and data
+        """
+        log.debug("Starting publish test\n")
+        # Topics are setup by the agent already, so they should just exist
+        param_list = yield self.IAClient.get_from_CI([IA.ci_param_list['DataTopics'],
+                                                      IA.ci_param_list['EventTopics'],
+                                                      IA.ci_param_list['StateTopics']])
+        # Setup a receiver
+        state_subscription = SubscriptionResource()
+        state_subscription.topic1 = param_list[IA.ci_param_list['StateTopics']]["Device"]
+                
+        state_subscription.workflow = {
+            'state_consumer':
+                {'module':'ion.services.dm.distribution.consumers.forwarding_consumer',
+                 'consumerclass':'ForwardingConsumer',\
+                 'attach':'topic1'}}
+        
+        state_subscription = yield self.pubsub.create_subscription(state_subscription)
+        log.info('Defined subscription: '+str(state_subscription))
+        
+        # change state of the driver, look for state and data messages
+        result = yield self.IAClient.execute_instrument(["StartAcquisition"])
+        yield pu.asleep(1)
+        
+        # compare it to the receiver
+        
+        # Add more stuff for the data path now
+        
