@@ -15,6 +15,7 @@ import random
 import math
 import time
 log = ion.util.ionlog.getLogger(__name__)
+import ion.util.procutils as pu
 
 from twisted.internet import protocol
 from twisted.internet import reactor
@@ -43,7 +44,7 @@ class Instrument(protocol.Protocol):
 
     # The following are class static variables (USED AS CONSTANTS)
     prompt = 'S>'
-    pumpInfo = 'SBE 49 FastCAT V 1.3a SERIAL NO. 0055'
+    pumpInfo = 'SBE 49 FastCAT SIMULATOR'
     sampleData = '21.9028,  1.00012,    1.139,   1.0103\n'
     commands = {
         'ds' : pumpInfo + '\n' +
@@ -333,6 +334,10 @@ class Simulator(object):
         yield self.listenport.stopListening()
         log.info("Stopped SBE49 simulator on port %d" % (self.port))
         self.state = "STOPPED"
+        # Sleep for a bit here to allow AMQP messages to complete, otherwise
+        # the tests will shutdown the container while there is still a message
+        # in enroute.
+        yield pu.asleep(1)
 
     @classmethod
     @defer.inlineCallbacks

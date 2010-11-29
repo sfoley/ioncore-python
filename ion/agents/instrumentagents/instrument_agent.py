@@ -14,7 +14,7 @@ from ion.agents.resource_agent import ResourceAgent
 from ion.agents.resource_agent import ResourceAgentClient
 from ion.core.exception import ReceivedError
 from ion.services.dm.distribution.pubsub_service import DataPubsubClient
-from ion.data.dataobject import ResourceReference
+from ion.data.dataobject import ResourceReference, DataObject
 from ion.core.process.process import Process, ProcessClient
 from ion.resources.ipaa_resource_descriptions import InstrumentAgentResourceInstance
 
@@ -31,6 +31,7 @@ ci_param_list = {
     "DataTopics":"DataTopics",
     "EventTopics":"EventTopics",
     "StateTopics":"StateTopics",
+    "DriverAddress":"driver_address"
 }
 
 # CI parameter key constant
@@ -219,6 +220,7 @@ class InstrumentAgent(ResourceAgent):
     """
     state_topics = None
 
+    @defer.inlineCallbacks
     def plc_init(self):
         self.pubsub_client = DataPubsubClient(proc=self)
 
@@ -269,21 +271,29 @@ class InstrumentAgent(ResourceAgent):
         @retval A reply message containing a dictionary of name/value pairs
         @todo Write this or push to subclass
         """
-        assert(isinstance(content, (list, tuple)))
-        assert(self.driver_client != None)
+        #assert(isinstance(content, (list, tuple)))
+        #assert(self.driver_client != None)
         response = {}
-
+        log.debug("*** getting from ci... %s", content)
         # get data somewhere, or just punt this lower in the class hierarchy
-        if ("driver_address" in content):
-            response['driver_address'] = str(self.driver_client.target)
+        if (ci_param_list['DriverAddress'] in content):
+            response[self.ci_param_list['DriverAddress']] = str(self.driver_client.target)
         
-        if (self.ci_param_list['OutputTopics'] in content):
-            response[self.ci_param_list['OutputTopics']] = self.output_topics
-        if (self.ci_param_list['StateTopics'] in content):
-            response[self.ci_param_list['StateTopics']] = self.state_topics
-        if (self.ci_param_list['ErrorTopics'] in content):
-            response[self.ci_param_list['ErrorTopics']] = self.error_topics  
+        if (ci_param_list['DataTopics'] in content):
+            response[ci_param_list['DataTopics']] = {}
+            for i in self.output_topics.keys():
+                log.debug("*** output_topics key %s: %s", i, self.output_topics[i])
+                response[ci_param_list['DataTopics']][i] = self.output_topics[i].encode()
+        if (ci_param_list['StateTopics'] in content):
+            response[ci_param_list['StateTopics']] = {}
+            for i in self.state_topics.keys():
+                response[ci_param_list['StateTopics']][i] = self.state_topics[i].encode()
+        if (ci_param_list['EventTopics'] in content):
+            response[ci_param_list['EventTopics']] = {}
+            for i in self.event_topics.keys():
+                response[ci_param_list['EventTopics']][i] = self.event_topics[i].encode()
 
+        log.debug("*** response from CI is %s", response) 
         if response != {}:
             yield self.reply_ok(msg, response)
         else:
@@ -458,7 +468,7 @@ class InstrumentAgent(ResourceAgent):
                                  "publish invoked from non-child process")
         log.debug("publish result: %s", result)
         # return something...like maybe result?
-
+    
 class InstrumentAgentClient(ResourceAgentClient):
     """
     The base class for an Instrument Agent Client. It is a service
@@ -481,7 +491,8 @@ class InstrumentAgentClient(ResourceAgentClient):
     @defer.inlineCallbacks
     def get_from_CI(self, paramList):
         """
-        Obtain a list of parameter names from the instrument
+        Obtain a list of parameter names from the instrument, decode some
+        values as needed.
         @param paramList A list of the values to fetch
         @retval A dict of the names and values requested
         """
@@ -489,6 +500,12 @@ class InstrumentAgentClient(ResourceAgentClient):
         (content, headers, message) = yield self.rpc_send('get_from_CI',
                                                           paramList)
         assert(isinstance(content, dict))
+        for key in content.keys():
+            if (key == ci_param_list['DataTopics'] or
+                       ci_param_list['EventTopics'] or
+                       ci_param_list['StateTopics']):
+                for entry in content[key].keys():
+                    content[key][entry] = DataObject.decode(content[key][entry])
         defer.returnValue(content)
 
     @defer.inlineCallbacks

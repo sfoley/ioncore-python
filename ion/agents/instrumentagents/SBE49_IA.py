@@ -23,7 +23,7 @@ class SBE49InstrumentAgent(InstrumentAgent):
     """
     Sea-Bird 49 specific instrument driver
     Inherits basic get, set, getStatus, getCapabilities, etc. from parent
-    """    
+    """
     @defer.inlineCallbacks
     def plc_init(self):
         """
@@ -37,42 +37,42 @@ class SBE49InstrumentAgent(InstrumentAgent):
         log.info("INIT agent for instrument ID: %s" % (self.instrument_id))
 
         self.driver_args['instrument-id'] = self.instrument_id
-        pd = ProcessDesc(**{'name':'SBE49Driver',
+        self.pd = ProcessDesc(**{'name':'SBE49Driver',
                           'module':'ion.agents.instrumentagents.SBE49_driver',
                           'class':'SBE49InstrumentDriver',
                           'spawnargs':self.driver_args})
-        log.debug("*** spawning driver from IA")
-        driver_id = yield self.spawn_child(pd)
-        log.debug("*** spawned driver")
+        driver_id = yield self.spawn_child(self.pd)
         self.driver_client = SBE49InstrumentDriverClient(proc=self,
                                                          target=driver_id)
-        log.debug("*** Starting base topics")
-        # set base topics        
-        self.output_topics = {"Device":"OutputDevice" + self.instrument_id}
-        self.event_topics = {"Device":"EventDevice" + self.instrument_id}
-        self.state_topics = {"Device":"StateDevice" + self.instrument_id}
+        # set and register base topics - should be unique to infrastructure        
+        self.output_topics = {}
+        self.event_topics = {}
+        self.state_topics = {}
         
-        # register topics
-        log.debug("*** creating topics")
         self.output_topics["Device"] = PubSubTopicResource.create("OutputDevice" + self.instrument_id, "")
         self.event_topics["Device"] = PubSubTopicResource.create("EventDevice" + self.instrument_id, "")
         self.state_topics["Device"] = PubSubTopicResource.create("StateDevice" + self.instrument_id, "")
 
-        log.debug("*** creating publisher")
-        """
-        for name in self.output_topics:
-            self.output_topics[name] = yield self.dpsc.define_topic(name)
-            log.info('Defined Topic: '+str(self.output_topics[name]))
-            ### Do we even need the publisher stuff below?
+        for key in self.output_topics.keys():
+            self.output_topics[key] = yield self.pubsub_client.define_topic(self.output_topics[key])
+            log.info('Defined Topic: '+str(self.output_topics[key]))
+
+        for key in self.event_topics.keys():
+            self.event_topics[key] = yield self.pubsub_client.define_topic(self.event_topics[key])
+            log.info('Defined Topic: '+str(self.event_topics[key]))
+
+        for key in self.state_topics.keys():
+            self.state_topics[key] = yield self.pubsub_client.define_topic(self.state_topics[key])
+            log.info('Defined Topic: '+str(self.state_topics[key]))
+
+            ### Do we even need the publisher stuff below in each define?
             #Create and register self.sup as a publisher
-            publisher = PublisherResource.create('Test Publisher', self.sup,
-                                                 self.output_topics[name],
-                                                 'DataObject')
-            publisher = yield self.dpsc.define_publisher(publisher)
-            log.info('Defined Publisher: ' + str(publisher))
+#            publisher = PublisherResource.create('Test Publisher', self.id,
+#                                                 self.output_topics[name],
+#                                                 'DataObject')
+#            publisher = yield self.pubsub_client.define_publisher(publisher)
+#            log.info('Defined Publisher: ' + str(publisher))
         ### Repeat above for event and state topics when the details are worked out
-        """
-        yield
 
     #@defer.inlineCallbacks
     #def plc_terminate(self):
@@ -107,6 +107,7 @@ class SBE49InstrumentAgent(InstrumentAgent):
                           IA.instrument_parameters: const.instrument_parameters,
                           IA.ci_commands: const.ci_commands,
                           IA.ci_parameters: const.ci_parameters}, {})
+
 
 # Spawn of the process using the module name
 factory = ProcessFactory(SBE49InstrumentAgent)

@@ -22,6 +22,8 @@ from instrument_hsm import InstrumentHsm
 from ion.agents.instrumentagents.instrument_connection import InstrumentConnection
 from twisted.internet.protocol import ClientCreator
 
+from collections import deque
+
 from ion.core.process.process import Process
 from ion.data.dataobject import ResourceReference
 from ion.resources.dm_resource_descriptions import Publication, PublisherResource, PubSubTopicResource, SubscriptionResource, DAPMessageObject
@@ -33,12 +35,15 @@ from ion.agents.instrumentagents.SBE49_constants import instrument_commands
 from ion.agents.instrumentagents.SBE49_constants import instrument_prompts
 
 import ion.util.procutils as pu
+from threading import Timer
 
 from ion.core.process.process import ProcessFactory
 
 #
 # DHE: need to do something like: instCmdTranslator = SBE49_InstCommandXlator()
 #
+
+RESPONSE_TIMEOUT = 2   # 2 second timeout for response from instrument
 
 class SBE49_instCommandXlator():
     commands = {
@@ -53,8 +58,24 @@ class SBE49_instCommandXlator():
         return(self.commands[command])
 
 class SBE49InstrumentHsm(InstrumentHsm):
-    def someFunction():
-        log.debug("some function")
+
+    hsmEvents = [
+        'eventConfigured',
+        'eventDisconnectComplete',
+        'eventCommandReceived',
+        'eventConnectionComplete',
+        'eventDisconnectReceived',
+        'eventDataReceived',
+        'eventPromptReceived',
+        'eventResponseTimeout'
+    ]
+
+    def sendEvent(self, event):
+        if event in self.hsmEvents:
+            self.onEvent(event)
+        else:
+            log.critical("Invalid Event: %s" %event)
+        
 
 class SBE49InstrumentDriver(InstrumentDriver):
     """
@@ -86,20 +107,20 @@ class SBE49InstrumentDriver(InstrumentDriver):
         #
         #self.hsm = miros.Hsm()
 
-        # --------------------------------------------------------------------
-        #             name                               parent's
-        #              of              event             event
-        #             state            handler           handler
-        # --------------------------------------------------------------------
-        self.hsm.addState ( "idle",           self.idle,               None)
-        #
-        self.hsm.addState ( "stateConfigured",  self.stateConfigured,     self.idle)
-        self.hsm.addState ( "stateDisconnecting",  self.stateDisconnecting,     self.stateConfigured)
-        self.hsm.addState ( "stateDisconnected",  self.stateDisconnected,     self.stateConfigured)
-        self.hsm.addState ( "stateConnecting",  self.stateConnecting,     self.stateConfigured)
-        self.hsm.addState ( "stateConnected",  self.stateConnected,     self.stateConfigured)
-        self.hsm.addState ( "statePrompted",  self.statePrompted,     self.stateConnected)
-        self.hsm.addState ( "stateDisconnecting",  self.stateDisconnecting,     self.stateConfigured)
+        # ---------------------------------------------------------------------------
+        #                  name                                              parent's
+        #                  of                     event                      event
+        #                  state                  handler                    handler
+        # ---------------------------------------------------------------------------
+        self.hsm.addState ( "stateBase",           self.stateBase,           None)
+        self.hsm.addState ( "stateUnconfigured",   self.stateUnconfigured,   self.stateBase)
+        self.hsm.addState ( "stateConfigured",     self.stateConfigured,     self.stateBase)
+        self.hsm.addState ( "stateDisconnecting",  self.stateDisconnecting,  self.stateConfigured)
+        self.hsm.addState ( "stateDisconnected",   self.stateDisconnected,   self.stateConfigured)
+        self.hsm.addState ( "stateConnecting",     self.stateConnecting,     self.stateConfigured)
+        self.hsm.addState ( "stateConnected",      self.stateConnected,      self.stateConfigured)
+        self.hsm.addState ( "statePrompted",       self.statePrompted,       self.stateConnected)
+        self.hsm.addState ( "stateDisconnecting",  self.stateDisconnecting,  self.stateConfigured)
     
         """
         A translation dictionary to translate from the commands being sent
@@ -155,33 +176,45 @@ class SBE49InstrumentDriver(InstrumentDriver):
 
         InstrumentDriver.__init__(self, *args, **kwargs)
 
-    # Change this to stateIdle
-    def idle(self, caller):
-        log.debug("!!!!!!!!!!!!!!!  In idle state")
+    def stateBase(self, caller):
+        log.debug("!!!!!!!!!!!!!!!  In stateBase state")
         if caller.tEvt['sType'] == "init":
             # display event
-            log.debug("idle-%s;" %(caller.tEvt['sType']))
+            log.debug("stateBase-%s;" %(caller.tEvt['sType']))
+            caller.stateStart(self.stateUnconfigured)
             return 0
         elif caller.tEvt['sType'] == "entry":
             # display event, do nothing 
-            log.debug("idle-%s;" %(caller.tEvt['sType']))
+            log.debug("stateBase-%s;" %(caller.tEvt['sType']))
             return 0
         elif caller.tEvt['sType'] == "exit":
-            log.debug("idle-%s;" %(caller.tEvt['sType']))
-            self.tEvt['nFoo'] = 0
-            return 0
-        elif caller.tEvt['sType'] == "configured":
-            log.debug("idle-%s;" %(caller.tEvt['sType']))
-            log.info("!!!!!! transitioning to stateConfigured! idle-%s;" %(caller.tEvt['sType']))
-            self.hsm.stateTran(self.stateConfigured)
+            log.debug("stateBase-%s;" %(caller.tEvt['sType']))
             return 0
         elif caller.tEvt['sType'] == "eventCommandReceived":
-            log.debug("idle state: ignoring event %s;" %(caller.tEvt['sType']))
+            log.info("stateBase state: ignoring event %s;" %(caller.tEvt['sType']))
             return 0
-        elif caller.tEvt['sType'] == "eventDataReceived":
-            log.debug("idle state: ignoring event %s;" %(caller.tEvt['sType']))
-            data = self.dequeueData()            
-            log.debug("stateIdle received %s." % (data))
+        else:
+            log.error("stateBase state: unhandled event %s;" %(caller.tEvt['sType']))
+            return 0
+        return caller.tEvt['sType']
+
+    def stateUnconfigured(self, caller):
+        log.debug("!!!!!!!!!!!!!!!  In stateUnconfigured state")
+        if caller.tEvt['sType'] == "init":
+            # display event
+            log.debug("stateUnconfigured-%s;" %(caller.tEvt['sType']))
+            return 0
+        elif caller.tEvt['sType'] == "entry":
+            # display event, do nothing 
+            log.debug("stateUnconfigured-%s;" %(caller.tEvt['sType']))
+            return 0
+        elif caller.tEvt['sType'] == "exit":
+            log.debug("stateUnconfigured-%s;" %(caller.tEvt['sType']))
+            return 0
+        elif caller.tEvt['sType'] == "eventConfigured":
+            log.debug("stateUnconfigured-%s;" %(caller.tEvt['sType']))
+            log.info("!!!!!! transitioning to stateConfigured! stateUnconfigured-%s;" %(caller.tEvt['sType']))
+            self.hsm.stateTran(self.stateConfigured)
             return 0
         return caller.tEvt['sType']
 
@@ -195,9 +228,6 @@ class SBE49InstrumentDriver(InstrumentDriver):
             log.info("stateConfigured-%s;" %(caller.tEvt['sType']))
             return 0
         elif caller.tEvt['sType'] == "exit":
-            log.info("stateConfigured-%s;" %(caller.tEvt['sType']))
-            return 0
-        elif caller.tEvt['sType'] == "eventDisconnectComplete":
             log.info("stateConfigured-%s;" %(caller.tEvt['sType']))
             return 0
         return caller.tEvt['sType']
@@ -341,6 +371,10 @@ class SBE49InstrumentDriver(InstrumentDriver):
             #
             caller.stateTran(self.stateDisconnecting)
             return 0
+        elif caller.tEvt['sType'] == "eventResponseTimeout":
+            log.info("stateConnected-%s;" %(caller.tEvt['sType']))
+            self.ProcessWakeupResponseTimeout()
+            return 0
         return caller.tEvt['sType']
 
     def statePrompted(self, caller):
@@ -391,9 +425,13 @@ class SBE49InstrumentDriver(InstrumentDriver):
             #
             caller.stateTran(self.stateDisconnecting)
             return 0
+        elif caller.tEvt['sType'] == "eventResponseTimeout":
+            log.info("statePrompted-%s;" %(caller.tEvt['sType']))
+            self.ProcessCmdResponseTimeout()
+            caller.stateTran(self.stateConnected)
+            return 0
         return caller.tEvt['sType']
 
-    @defer.inlineCallbacks
     def plc_init(self):
         log.debug("SBE49InstrumentDriver.plc_init: spawn_args: %s" %str(self.spawn_args))
         self.instrument_id = self.spawn_args.get('instrument-id', '123')
@@ -404,9 +442,9 @@ class SBE49InstrumentDriver(InstrumentDriver):
         
         # DHE Testing HSM
         log.debug("!!!!!!!!!!!!!!!!!! Calling onStart!")
-        self.hsm.onStart(self.idle)
+        self.hsm.onStart(self.stateUnconfigured)
 
-        self._configure_driver(self.spawn_args)
+        yield self._configure_driver(self.spawn_args)
 
         log.info("INIT DRIVER for instrument ID=%s, ipaddr=%s, port=%s" % (
             self.instrument_id, self.instrument_ipaddr, self.instrument_ipport))
@@ -416,7 +454,8 @@ class SBE49InstrumentDriver(InstrumentDriver):
 #        log.debug("Instrument driver initialized")
 
         log.debug("!!!!!!!!!!! Sending configured event");
-        self.hsm.onEvent('configured');
+        #self.hsm.onEvent('configured');
+        self.hsm.sendEvent('eventConfigured');
 
     @defer.inlineCallbacks
     def plc_terminate(self):
@@ -435,7 +474,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
         self.dataQueue.append(data)
 
     def dequeueData(self):
-        data = self.dataQueue.pop()
+        data = self.dataQueue.popleft()
         #log.debug("dequeueCmd: dequeueing command: %s" %data)
         return data
         
@@ -444,7 +483,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
         self.cmdQueue.append(cmd)
 
     def dequeueCmd(self):
-        cmd = self.cmdQueue.pop()
+        cmd = self.cmdQueue.popleft()
         #log.debug("dequeueCmd: dequeueing command: %s" %cmd)
         return cmd
 
@@ -453,10 +492,29 @@ class SBE49InstrumentDriver(InstrumentDriver):
             return True
         else:
             return False
-        
+
+    def TimeoutCallback(self):
+        log.info("TimeoutCallback()")
+        if self.TimeOut != None:
+            self.TimeOut = None
+            self.hsm.sendEvent('eventResponseTimeout');
+            
+    def ProcessCmdResponseTimeout(self):
+        log.error("No response from instrument for cammand \'%s\'" % self.cmdQueue[0])
+        self.cmdQueue = []
+        self.publish("No response from instrument for cammand \'%s\'".format(self.cmdQueue[0]), self.publish_to)
+
+    def ProcessWakeupResponseTimeout(self):
+        log.error("No response from instrument for wakeup")
+        self.cmdQueue = []
+        self.publish("No response from instrument for wakeup", self.publish_to)
+      
     def sendCmd(self, cmd):
         log.debug("Sending Command: %s" %cmd)
         self.instrument.transport.write(cmd)
+        # TODO: What if self.TimeOut exists and is running?  
+        self.TimeOut = Timer(RESPONSE_TIMEOUT, self.TimeoutCallback)
+        self.TimeOut.start()
         
     @defer.inlineCallbacks
     def getConnected(self):
@@ -493,7 +551,8 @@ class SBE49InstrumentDriver(InstrumentDriver):
         #
         self.setConnected(True)
         
-        self.hsm.onEvent('eventConnectionComplete')
+        #self.hsm.onEvent('eventConnectionComplete')
+        self.hsm.sendEvent('eventConnectionComplete')
 
 
     def gotDisconnected(self, instrument):
@@ -506,12 +565,10 @@ class SBE49InstrumentDriver(InstrumentDriver):
         """
         log.debug("gotDisconnected!!!")
 
-        self.hsm.onEvent('eventDisconnectComplete')
+        #self.hsm.onEvent('eventDisconnectComplete')
+        self.hsm.sendEvent('eventDisconnectComplete')
 
-        #
-        # Don't need this anymore
-        #
-        self.setConnected(False)
+        self.proto = None
 
     def gotData(self, data):
         """
@@ -520,20 +577,32 @@ class SBE49InstrumentDriver(InstrumentDriver):
         @param data
         @retval none
         """
+        
+        #
+        # TODO: currently doing this here, but this will change to
+        # where it is discovered that the command is valid
+        #
+        if self.TimeOut != None:
+             self.TimeOut.cancel()
+             self.TimeOut = None
+        
         if data == instrument_prompts.INST_PROMPT or \
-                 data == instrument_prompts.INST_SLEEPY_PROMPT:
+              data == instrument_prompts.INST_SLEEPY_PROMPT:
             log.debug("gotPrompt()")
-            self.hsm.onEvent('eventPromptReceived')
+            #self.hsm.onEvent('eventPromptReceived')
+            self.hsm.sendEvent('eventPromptReceived')
         elif data == instrument_prompts.INST_CONFUSED:
             log.info("Seabird doesn't understand command.")
         else:
             log.debug("gotData() %s." % (data))
             self.enqueueData(data)
-            self.hsm.onEvent('eventDataReceived')
+            #self.hsm.onEvent('eventDataReceived')
+            self.hsm.sendEvent('eventDataReceived')
         
     def gotPrompt(self, instrument):
         log.debug("gotPrompt()")
-        self.hsm.onEvent('eventPromptReceived')
+        #self.hsm.onEvent('eventPromptReceived')
+        self.hsm.sendEvent('eventPromptReceived')
 
 
     @defer.inlineCallbacks    
@@ -559,7 +628,8 @@ class SBE49InstrumentDriver(InstrumentDriver):
     @defer.inlineCallbacks
     def op_disconnect(self, content, headers, msg):
         log.debug("in Instrument Driver op_disconnect!")
-        self.hsm.onEvent('eventDisconnectReceived')
+        #self.hsm.onEvent('eventDisconnectReceived')
+        self.hsm.sendEvent('eventDisconnectReceived')
         if msg:
             yield self.reply_ok(msg, content)
 
@@ -608,7 +678,8 @@ class SBE49InstrumentDriver(InstrumentDriver):
                     appropriate sequence of events to get the command sent.
                     """
                     self.enqueueCmd(command)
-                    self.hsm.onEvent('eventCommandReceived')
+                    #self.hsm.onEvent('eventCommandReceived')
+                    self.hsm.sendEvent('eventCommandReceived')
                 else:
                     error_msg = str(param) + " is not a settable parameter"
                     #log.error("%s is not a settable parameter" % str(param))
@@ -651,7 +722,8 @@ class SBE49InstrumentDriver(InstrumentDriver):
                 Send the command received event.  This should kick off the
                 appropriate sequence of events to get the command sent.
                 """
-                self.hsm.onEvent('eventCommandReceived')
+                #self.hsm.onEvent('eventCommandReceived')
+                self.hsm.sendEvent('eventCommandReceived')
 
                 agentCommands.append(command)
                 yield self.reply_ok(msg, agentCommands)
