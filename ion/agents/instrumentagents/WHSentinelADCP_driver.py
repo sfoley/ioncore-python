@@ -43,13 +43,13 @@ class CmdPort(Protocol):
     
     def __init__(self, parent):
         self.parent = parent
-        log.info("CmdPort __init__")
+        log.debug("CmdPort __init__")
 
     def connectionMade(self):
         """
         @brief A client has made a connection:
         """
-        log.info("CmdPort connectionMade")
+        log.debug("CmdPort connectionMade")
         self.parent.gotCmdConnected(self)
 
     def dataReceived(self, data):
@@ -130,6 +130,18 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
             "baudrate": 9600,
             "parity": 1,
             "stopBits": 1
+        }
+        
+        self.buadRateTable = {
+            300: 0,
+            1200: 1,
+            2400: 2,
+            4800: 3,
+            9600: 4,
+            19200: 5,
+            38400: 6,
+            57600: 7,
+            115200: 8
         }
 
         InstrumentDriver.__init__(self, *args, **kwargs)
@@ -340,7 +352,7 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
         if self.TimeOut != None:
             self.TimeOut.cancel()
             self.TimeOut = None
-        self.hsm.sendEvent('eventDisconnectReceived')
+        yield self.hsm.sendEvent('eventDisconnectReceived')
 
 
     def isTopicDefined(self):
@@ -629,6 +641,15 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
         yield self.reply_ok(msg, result)
 
 
+    def constructCommand(self, param):
+        if param in ["baudrate", "parity", "stopBits"]:
+            Value = (self.buadRateTable[self.__instrument_parameters["baudrate"]]*100) + \
+                    (self.__instrument_parameters["parity"]*10) + \
+                    (self.__instrument_parameters["stopBits"])
+        Command = self.ParmCommands[param] + str(Value)
+        return Command
+
+
     @defer.inlineCallbacks
     def op_set_params(self, content, headers, msg):
         """
@@ -653,10 +674,11 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
                 # NEED TO BREAK OUT HERE: don't send multiple responses
                 break;
             else:
+                log.info("setting param %s to %s" %(str(param), str(content[param])))
                 self.__instrument_parameters[param] = content[param]
                 if param in self.ParmCommands:
-                    log.info("current param is: %s" %str(param))
-                    command = self.ParmCommands[param] + "=" + str(content[param])
+                    command = self.constructCommand(param)
+                    log.info("command for setting param %s is %s" %(str(param), command))
                     """
                     Send the command received event.  This should kick off the
                     appropriate sequence of events to get the command sent.

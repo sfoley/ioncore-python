@@ -53,7 +53,7 @@ Maybe some day these values are looked up from a registry of common
 controlled vocabulary
 """
 instrument_parameters = (
-    "baudrate"
+    "baudrate",
 )
 
 """

@@ -30,13 +30,13 @@ INSTRUMENT_ID = "456"
 class CmdPort(protocol.Protocol):
     
     def __init__(self):
-        log.info("CmdPort __init__")
+        log.debug("CmdPort __init__")
         
     def connectionMade(self):
         """
         @brief A client has made a connection:
         """
-        log.info("CmdPort connectionMade")
+        log.debug("CmdPort connectionMade")
         self.factory.connections.append(self)
 
     def dataReceived(self, data):
@@ -212,6 +212,23 @@ class Instrument(protocol.Protocol):
                     log.debug("Starting test samples")
                     self.startTestSamples()
                     self.testRunning = 'true'
+                    
+            elif command == "cb":
+                if not value.isdigit():
+                    self.transport.write(self.bad_parameters_error)
+                elif len(value) != 3:
+                    self.transport.write(self.bad_parameters_error)
+                else:
+                    for i in range(3):
+                        if i == 0:
+                            if not self.checkValueRange(0, 8, int(value[i]), self.bad_parameters_error):
+                                return
+                        elif i == 1:
+                            if not self.checkValueRange(1, 5, int(value[i]), self.bad_parameters_error):
+                                return
+                        elif not self.checkValueRange(1, 2, int(value[i]), self.bad_parameters_error):
+                            return
+                    self.transport.write(self.prompt)
                     
             elif command == "cf":
                 if not value.isdigit():

@@ -33,11 +33,11 @@ class WHSentinelADCPInstrumentAgent(InstrumentAgent):
         InstrumentAgent.plc_init(self)
 
         self.instrument_id = self.spawn_args.get('instrument-id', '123')
-        self.driver_args = self.spawn_args.get('driver-args', {})
+        self.driver_args = self.spawn_args.get('driver-args', {'ipport':9000,'ipportCmd':9001})
         log.info("INIT agent for instrument ID: %s" % (self.instrument_id))
 
         self.driver_args['instrument-id'] = self.instrument_id
-        self.pd = ProcessDesc(**{'name':'WHSentinelADCPriver',
+        self.pd = ProcessDesc(**{'name':'WHSentinelADCPDriver',
                           'module':'ion.agents.instrumentagents.WHSentinelADCP_driver',
                           'class':'WHSentinelADCPInstrumentDriver',
                           'spawnargs':self.driver_args})
