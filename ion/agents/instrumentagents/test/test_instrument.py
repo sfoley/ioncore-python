@@ -32,13 +32,17 @@ from ion.agents.instrumentagents.simulators.sim_SBE49 import Simulator
 from ion.core.exception import ReceivedError
 import ion.util.procutils as pu
 
-
 class TestInstrumentAgent(IonTestCase):
 
     @defer.inlineCallbacks
     def setUp(self):
         yield self._start_container()
 
+        # startup a simulator
+        self.simulator = Simulator("123", 9000)
+        self.SimulatorPort = self.simulator.start()
+        self.assertNotEqual(self.SimulatorPort, 0)
+        
         # Start an instrument agent
         processes = [
             {'name':'pubsub_registry','module':'ion.services.dm.distribution.pubsub_registry','class':'DataPubSubRegistryService'},
@@ -258,6 +262,7 @@ class TestInstrumentAgent(IonTestCase):
         Test the ability to publish events and data
         """
         log.debug("Starting publish test\n")
+        
         # Topics are setup by the agent already, so they should just exist
         param_list = yield self.IAClient.get_from_CI([IA.ci_param_list['DataTopics'],
                                                       IA.ci_param_list['EventTopics'],

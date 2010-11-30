@@ -432,6 +432,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
             return 0
         return caller.tEvt['sType']
 
+    @defer.inlineCallbacks
     def plc_init(self):
         log.debug("SBE49InstrumentDriver.plc_init: spawn_args: %s" %str(self.spawn_args))
         self.instrument_id = self.spawn_args.get('instrument-id', '123')
@@ -444,8 +445,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
         log.debug("!!!!!!!!!!!!!!!!!! Calling onStart!")
         self.hsm.onStart(self.stateUnconfigured)
 
-        yield self._configure_driver(self.spawn_args)
-
+        self._configure_driver(self.spawn_args)
         log.info("INIT DRIVER for instrument ID=%s, ipaddr=%s, port=%s" % (
             self.instrument_id, self.instrument_ipaddr, self.instrument_ipport))
 
@@ -758,7 +758,6 @@ class SBE49InstrumentDriver(InstrumentDriver):
         # Do something here, then adjust test case
         yield self.reply_ok(msg, content)
 
-    @defer.inlineCallbacks
     def _configure_driver(self, params):
         """
         Configures driver params either on startup or on command
@@ -775,6 +774,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
             self.instrument_ipport = params['ipport']
         else:
             log.debug("%%%%%%%% No ipport in params: defaulting to: %s" %self.instrument_ipport)
+
 
 class SBE49InstrumentDriverClient(InstrumentDriverClient):
     """
