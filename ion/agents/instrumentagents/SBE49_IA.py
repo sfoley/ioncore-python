@@ -108,6 +108,20 @@ class SBE49InstrumentAgent(InstrumentAgent):
                           IA.ci_commands: const.ci_commands,
                           IA.ci_parameters: const.ci_parameters}, {})
 
+    @defer.inlineCallbacks
+    def op_execute_instrument(self, content, headers, msg):
+        """
+        Do any translating from instrument agent interface commands to
+        individual instrument commands
+        """
+        assert isinstance(content, (tuple, list)), "SBE49 executing bad command list"
+        new_content = []
+        for item in content:
+            if (const.command_substitutions[item]):
+                new_content.append(const.command_substitutions[item])
+            else:
+                new_content.append(item)
+        InstrumentAgent.op_execute_instrument(self, tuple(new_content), headers, msg)
 
 # Spawn of the process using the module name
 factory = ProcessFactory(SBE49InstrumentAgent)

@@ -699,16 +699,15 @@ class SBE49InstrumentDriver(InstrumentDriver):
         """
         assert(isinstance(content, (tuple, list)))
 
-        log.debug("op_execute content: %s" %str(content))
+        log.debug("op_execute content: %s" % content)
 
         if ((content == ()) or (content == [])):
             yield self.reply_err(msg, "Empty command")
             return
         agentCommands = []
-        for command_set in content:
-            command = command_set[0]
+        for command in content:
             if command not in instrument_commands:
-                log.error("Invalid Command: %s" %command)
+                log.error("Invalid Command: %s" % command)
                 yield self.reply_err(msg, "Invalid Command")
             else:
                 log.debug("op_execute translating command: %s" % command)

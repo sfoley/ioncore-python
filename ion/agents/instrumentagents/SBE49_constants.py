@@ -28,6 +28,10 @@ instrument_commands = (
     "test_pressure_raw"
 )
 
+command_substitutions = {
+    "StartAcquisition":"start"
+}
+
 ci_commands = (
     "start_direct_access",
     "stop_direct_access",
