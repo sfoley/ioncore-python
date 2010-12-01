@@ -204,6 +204,10 @@ class InstrumentManagementService(ServiceProcess):
         Service operation: Starts an instrument agent for a type of
         instrument.
         """
+
+        SBE37_IPADDR = '137.110.112.119'
+        SBE37_IPPORT = 4001
+        
         if 'instrumentID' in content:
             inst_id = str(content['instrumentID'])
         else:
@@ -222,7 +226,11 @@ class InstrumentManagementService(ServiceProcess):
             raise StandardError("Agent already started for instrument "+str(inst_id))
 
         simulator = Simulator(inst_id)
-        simulator.start()
+        simPort = simulator.start()
+        if simPort <= 0:
+            raise StandardError("Simulator returned invalid port number.")
+        else:
+            log.info("Simulator returned port: %d" %simPort)
 
         topicname = "Inst/RAW/"+inst_id
         topic = PubSubTopicResource.create(topicname,"")
@@ -230,10 +238,14 @@ class InstrumentManagementService(ServiceProcess):
         # Use the service to create a queue and register the topic
         topic = yield self.dpsc.define_topic(topic)
 
+        log.info("Starting agent with ipport: %d" %simulator.port)
+
         iagent_args = {}
         iagent_args['instrument-id'] = inst_id
         driver_args = {}
-        driver_args['port'] = simulator.port
+        #driver_args['ipport'] = simulator.port
+        driver_args['ipaddr'] = SBE37_IPADDR
+        driver_args['ipport'] = SBE37_IPPORT
         driver_args['publish-to'] = topic.RegistryIdentity
         iagent_args['driver-args'] = driver_args
 

@@ -571,8 +571,14 @@ class SBE49InstrumentDriver(InstrumentDriver):
         """
         
         #
-        # TODO: currently doing this here, but this will change to
-        # where it is discovered that the command is valid
+        # TODO: Currently the data can come in in bits and pieces from
+        # the device server; turns out this is very similar to how it
+        # will arrive from the instrument (1 byte at a time), so this
+        # code needs to handle lines at a time until the prompt is seen.
+        #
+        # It seems that this code should not fire an event into the state
+        # machine for every character; rather it should parse the data and
+        # send the appropriate event.  We'll see...
         #
         if self.TimeOut != None:
             log.debug("gotData: cancelling timer.")
@@ -581,17 +587,47 @@ class SBE49InstrumentDriver(InstrumentDriver):
         else:
             log.debug("gotData: NOT cancelling timer")
         
-        if data == instrument_prompts.INST_PROMPT or \
-              data == instrument_prompts.INST_SLEEPY_PROMPT:
-            log.debug("gotPrompt()")
+        #
+        # If we got an INST_PROMPT or an INST_SLEEPY_PROMPT (the instrument
+        # sends this when it's been prompted and was asleep), then we can
+        # send the eventPromptReceived.  We could still have data in the
+        # queue along with, though, so we need to handle that.
+        dataFrag = ""
+        if instrument_prompts.INST_PROMPT in data:
+            log.debug("gotData(): prompt seen")
+            partuple = data.partition(instrument_prompts.INST_PROMPT)
+            dataFrag = partuple[0]
             self.hsm.sendEvent('eventPromptReceived')
-        elif data == instrument_prompts.INST_CONFUSED:
-            log.info("Seabird doesn't understand command.")
+        elif instrument_prompts.INST_SLEEPY_PROMPT in data:
+            log.debug("gotData(): sleepy prompt seen")
+            self.hsm.sendEvent('eventPromptReceived')
+        elif instrument_prompts.INST_CONFUSED in data:
+            #
+            # If this happens, we have a problem.  Need to send an error to
+            # the CI
+            log.error("Seabird doesn't understand command.")
         else:
-            log.debug("gotData() %s." % (data))
+            # This should be a data fragment: add it to the data queue
+            dataFrag = data
+            log.debug("gotData(): data fragment of length %d seen" % len(dataFrag))
+
+        #
+        # Now if there's data, enqueue it.
+        #
+        if len(dataFrag) > 0:
+            log.debug("gotData(): enqueueing data")
             self.enqueueData(data)
+
+        #
+        # And if there's a line feed, send the data
+        #
+        if instrument_prompts.LINE_TERM in data:
+            log.debug("gotData(): got line of data: sending event.")
+            if instrument_prompts.INST_PROMPT in data:
+                log.debug("gotData(): prompt seen")
+                self.hsm.sendEvent('eventPromptReceived')
             self.hsm.sendEvent('eventDataReceived')
-        
+       
     @defer.inlineCallbacks
     def publish(self, data, topic):
         """
