@@ -90,8 +90,8 @@ class SBE49InstrumentDriver(InstrumentDriver):
         self.setConnected(False)
         self.setTopicDefined(False)
         self.publish_to = None
-        self.dataQueue = deque()
-        self.cmdQueue = deque()
+        self.dataQueue = ""
+        self.cmdQueue = deque([])
         self.proto = None
         self.TimeOut = None
     
@@ -449,13 +449,15 @@ class SBE49InstrumentDriver(InstrumentDriver):
         self.agent = agent
         
     def enqueueData(self, data):
-        self.dataQueue.append(data)
+        self.dataQueue += data
 
     def dequeueData(self):
-        log.debug("dequeueData: dequeueing command")
-        data = self.dataQueue.popleft()
-        log.debug("dequeueData: dequeued command: %s" %data)
+        data = self.dataQueue
+        log.debug("dequeueData: dequeued data: %s" %data)
         return data
+
+    def peekData(self):
+        return self.dataQueue
         
     def enqueueCmd(self, cmd):
         log.debug("enqueueCmd: enqueueing command: %s" %cmd)
@@ -615,15 +617,23 @@ class SBE49InstrumentDriver(InstrumentDriver):
         # Now if there's data, enqueue it.
         #
         if len(dataFrag) > 0:
-            log.debug("gotData(): enqueueing data")
+            log.debug("gotData(): enqueueing data: %s" % data)
             self.enqueueData(data)
 
         #
         # And if there's a line feed, send the data
         #
-        if instrument_prompts.LINE_TERM in data:
+        # TODO: There's no reason to do any of the above checking until
+        # enqueueing the data...enqueue first and look through enqueued
+        # data for a line terminator: if there is one, it will be
+        # sent to the state machine.  
+        tempData = self.peekData()
+        log.debug("DHE!!! tempData is %s: " % tempData)
+        #if instrument_prompts.LINE_TERM in data:
+        if instrument_prompts.LINE_TERM in tempData:
             log.debug("gotData(): got line of data: sending event.")
-            if instrument_prompts.INST_PROMPT in data:
+            #if instrument_prompts.INST_PROMPT in data:
+            if instrument_prompts.INST_PROMPT in tempData:
                 log.debug("gotData(): prompt seen")
                 self.hsm.sendEvent('eventPromptReceived')
             self.hsm.sendEvent('eventDataReceived')
