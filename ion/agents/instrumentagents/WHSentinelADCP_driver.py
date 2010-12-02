@@ -231,6 +231,9 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
         elif caller.tEvt['sType'] == "eventDisconnectReceived":
             caller.stateTran(self.stateDisconnecting)
             return 0
+        elif caller.tEvt['sType'] == "eventDisconnectComplete":
+            caller.stateTran(self.stateDisconnected)
+            return 0
         return caller.tEvt['sType']
 
     def stateConnected(self, caller):
@@ -262,6 +265,9 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
             return 0
         elif caller.tEvt['sType'] == "eventResponseTimeout":
             self.ProcessWakeupResponseTimeout()
+            return 0
+        elif caller.tEvt['sType'] == "eventDisconnectComplete":
+            caller.stateTran(self.stateDisconnected)
             return 0
         return caller.tEvt['sType']
 
@@ -300,6 +306,9 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
             return 0
         elif caller.tEvt['sType'] == "eventDisconnectReceived":
             caller.stateTran(self.stateDisconnecting)
+            return 0
+        elif caller.tEvt['sType'] == "eventDisconnectComplete":
+            caller.stateTran(self.stateDisconnected)
             return 0
         return caller.tEvt['sType']
 
