@@ -67,7 +67,8 @@ class SBE49InstrumentHsm(InstrumentHsm):
         'eventDisconnectReceived',
         'eventDataReceived',
         'eventPromptReceived',
-        'eventResponseTimeout'
+        'eventResponseTimeout',
+        'eventInstrumentAsleep'
     ]
 
     def sendEvent(self, event):
@@ -90,8 +91,8 @@ class SBE49InstrumentDriver(InstrumentDriver):
         self.setConnected(False)
         self.setTopicDefined(False)
         self.publish_to = None
-        self.dataQueue = deque()
-        self.cmdQueue = deque()
+        self.dataQueue = ""
+        self.cmdQueue = deque([])
         self.proto = None
         self.TimeOut = None
     
@@ -117,6 +118,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
         self.hsm.addState ( "stateConnecting",     self.stateConnecting,     self.stateConfigured)
         self.hsm.addState ( "stateConnected",      self.stateConnected,      self.stateConfigured)
         self.hsm.addState ( "statePrompted",       self.statePrompted,       self.stateConnected)
+        self.hsm.addState ( "stateWakingInstrument",  self.stateWakingInstrument, self.stateConnected)
         self.hsm.addState ( "stateDisconnecting",  self.stateDisconnecting,  self.stateConfigured)
     
         """
@@ -311,6 +313,8 @@ class SBE49InstrumentDriver(InstrumentDriver):
             # before sending
             self.sendCmd(instrument_prompts.PROMPT_INST)
             #self.sendWakeup()
+            # transition to sub-state 'stateWakingInstrument'
+            #caller.stateTran(self.stateWakingInstrument)
             return 0
         elif caller.tEvt['sType'] == "eventDataReceived":
             # send this up to the agent to publish.
@@ -338,6 +342,23 @@ class SBE49InstrumentDriver(InstrumentDriver):
             self.ProcessWakeupResponseTimeout()
             return 0
         return caller.tEvt['sType']
+
+    #
+    # A state that knows how to deal with strange wakeup behavior
+    #
+    def stateWakingInstrument(self, caller):
+        log.info("stateWakingInstrument-%s;" %(caller.tEvt['sType']))
+        if caller.tEvt['sType'] == "init":
+            return 0
+        elif caller.tEvt['sType'] == "entry":
+            return 0
+        elif caller.tEvt['sType'] == "exit":
+            return 0
+        elif caller.tEvt['sType'] == "eventPromptReceived":
+            caller.stateTran(self.statePrompted)
+            return 0
+        return caller.tEvt['sType']
+
 
     def statePrompted(self, caller):
         log.info("statePrompted-%s;" %(caller.tEvt['sType']))
@@ -390,6 +411,9 @@ class SBE49InstrumentDriver(InstrumentDriver):
             return 0
         elif caller.tEvt['sType'] == "eventResponseTimeout":
             self.ProcessCmdResponseTimeout()
+            caller.stateTran(self.stateConnected)
+            return 0
+        elif caller.tEvt['sType'] == "eventInstrumentAsleep":
             caller.stateTran(self.stateConnected)
             return 0
         return caller.tEvt['sType']
@@ -449,14 +473,20 @@ class SBE49InstrumentDriver(InstrumentDriver):
         self.agent = agent
         
     def enqueueData(self, data):
-        self.dataQueue.append(data)
+        self.dataQueue += data
 
     def dequeueData(self):
-        log.debug("dequeueData: dequeueing command")
-        data = self.dataQueue.popleft()
-        log.debug("dequeueData: dequeued command: %s" %data)
+        data = self.dataQueue
+        log.debug("dequeueData: dequeued data: %s" %data)
+        self.dataQueue = ""
         return data
+
+    def peekData(self):
+        return self.dataQueue
         
+    def lenData(self):
+        return len(self.dataQueue)
+
     def enqueueCmd(self, cmd):
         log.debug("enqueueCmd: enqueueing command: %s" %cmd)
         self.cmdQueue.append(cmd)
@@ -562,7 +592,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
 
         self.proto = None
 
-    def gotData(self, data):
+    def gotData(self, dataFrag):
         """
         @brief The instrument protocol object has received data from the
         instrument. 
@@ -570,28 +600,44 @@ class SBE49InstrumentDriver(InstrumentDriver):
         @retval none
         """
         
-        #
-        # TODO: currently doing this here, but this will change to
-        # where it is discovered that the command is valid
-        #
         if self.TimeOut != None:
             log.debug("gotData: cancelling timer.")
             self.TimeOut.cancel()
             self.TimeOut = None
         else:
             log.debug("gotData: NOT cancelling timer")
-        
-        if data == instrument_prompts.INST_PROMPT or \
-              data == instrument_prompts.INST_SLEEPY_PROMPT:
-            log.debug("gotPrompt()")
-            self.hsm.sendEvent('eventPromptReceived')
-        elif data == instrument_prompts.INST_CONFUSED:
-            log.info("Seabird doesn't understand command.")
-        else:
-            log.debug("gotData() %s." % (data))
-            self.enqueueData(data)
-            self.hsm.sendEvent('eventDataReceived')
-        
+
+        if dataFrag == instrument_prompts.INST_GONE_TO_SLEEP:
+            log.debug("gotData(): Instrument is now asleep.")
+            self.hsm.sendEvent('eventInstrumentAsleep')
+        else:            
+            log.debug("gotData(): enqueueing dataFrag: %s" % dataFrag)
+            self.enqueueData(dataFrag)
+    
+            #
+            # If we got an INST_PROMPT then we send the eventPromptReceived.
+            #
+            data = self.peekData()
+            if instrument_prompts.INST_PROMPT in data:
+                log.debug("gotData(): prompt received")
+                self.hsm.sendEvent('eventPromptReceived')
+                
+            #
+            # Now process, but only if there's a line terminator
+            #
+            if instrument_prompts.LINE_TERM in data:
+                #
+                # If we got an INST_SLEEPY_PROMPT (the instrument
+                # sends this when it's been prompted and was asleep), then we can
+                # send the eventPromptReceived.  We could still have data in the
+                # queue along with, though, so we need to handle that.
+                #
+                if instrument_prompts.INST_SLEEPY_PROMPT in data:
+                    log.debug("gotData2(): sleepy prompt seen")
+                    self.hsm.sendEvent('eventPromptReceived')
+                log.debug("gotData(): got line of data: sending eventDataReceived.")
+                self.hsm.sendEvent('eventDataReceived')
+       
     @defer.inlineCallbacks
     def publish(self, data, topic):
         """
