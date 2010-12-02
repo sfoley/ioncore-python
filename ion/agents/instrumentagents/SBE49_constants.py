@@ -14,6 +14,7 @@ class instrument_prompts:
     #INST_PROMPT = "\r\nS>"
     INST_PROMPT = "S>"
     INST_CONFUSED = "\r\n?cmd S>"
+    INST_GONE_TO_SLEEP = "\0"
 
 instrument_commands = (
     "setdefaults",

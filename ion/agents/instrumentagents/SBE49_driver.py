@@ -67,7 +67,8 @@ class SBE49InstrumentHsm(InstrumentHsm):
         'eventDisconnectReceived',
         'eventDataReceived',
         'eventPromptReceived',
-        'eventResponseTimeout'
+        'eventResponseTimeout',
+        'eventInstrumentAsleep'
     ]
 
     def sendEvent(self, event):
@@ -412,6 +413,9 @@ class SBE49InstrumentDriver(InstrumentDriver):
             self.ProcessCmdResponseTimeout()
             caller.stateTran(self.stateConnected)
             return 0
+        elif caller.tEvt['sType'] == "eventInstrumentAsleep":
+            caller.stateTran(self.stateConnected)
+            return 0
         return caller.tEvt['sType']
 
     @defer.inlineCallbacks
@@ -602,19 +606,22 @@ class SBE49InstrumentDriver(InstrumentDriver):
             self.TimeOut = None
         else:
             log.debug("gotData: NOT cancelling timer")
-        
-        log.debug("gotData(): enqueueing dataFrag: %s" % dataFrag)
-        self.enqueueData(dataFrag)
 
-        #
-        # If we got an INST_PROMPT then we send the eventPromptReceived.
-        #
-        data = self.peekData()
-        if len(data) == 2:
-            if data == instrument_prompts.INST_PROMPT:
-                log.debug("gotData(): solo prompt received")
+        if dataFrag == instrument_prompts.INST_GONE_TO_SLEEP:
+            log.debug("gotData(): Instrument is now asleep.")
+            self.hsm.sendEvent('eventInstrumentAsleep')
+        else:            
+            log.debug("gotData(): enqueueing dataFrag: %s" % dataFrag)
+            self.enqueueData(dataFrag)
+    
+            #
+            # If we got an INST_PROMPT then we send the eventPromptReceived.
+            #
+            data = self.peekData()
+            if instrument_prompts.INST_PROMPT in data:
+                log.debug("gotData(): prompt received")
                 self.hsm.sendEvent('eventPromptReceived')
-        else:
+                
             #
             # Now process, but only if there's a line terminator
             #
