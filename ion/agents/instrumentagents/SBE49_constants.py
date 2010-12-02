@@ -9,8 +9,10 @@
 class instrument_prompts:
     LINE_TERM = "\r\n"
     PROMPT_INST = "\r\n"
-    INST_SLEEPY_PROMPT = "\0SBE 37-SM\r\nS>"
-    INST_PROMPT = "\r\nS>"
+    #INST_SLEEPY_PROMPT = "\0SBE 37-SM\r\nS>"
+    INST_SLEEPY_PROMPT = "\0SBE 37-SM\r\n"
+    #INST_PROMPT = "\r\nS>"
+    INST_PROMPT = "S>"
     INST_CONFUSED = "\r\n?cmd S>"
 
 instrument_commands = (
