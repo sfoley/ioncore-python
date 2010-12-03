@@ -17,9 +17,10 @@ from ion.services.dm.distribution.pubsub_service import DataPubsubClient
 from ion.data.dataobject import ResourceReference, DataObject
 from ion.core.process.process import Process, ProcessClient
 from ion.resources.ipaa_resource_descriptions import InstrumentAgentResourceInstance
+from ion.resources.dm_resource_descriptions import PublisherResource
 
 """
-Constants/Enumerations for tags in capabiltiies dict structures
+Constants/Enumerations for tags in capabilities dict structures
 """
 ci_commands = 'ci_commands'
 ci_parameters = 'ci_parameters'
@@ -32,6 +33,14 @@ ci_param_list = {
     "EventTopics":"EventTopics",
     "StateTopics":"StateTopics",
     "DriverAddress":"driver_address"
+}
+
+publish_msg_type = {
+    "Error":"Error",
+    "StateChange":"StateChange",
+    "ConfigChange":"ConfigChange",
+    "Data":"Data",
+    "Event":"Event"
 }
 
 # CI parameter key constant
@@ -126,10 +135,10 @@ class InstrumentDriverClient(ProcessClient):
         @param command An ordered list of lists where the command name is the
             first item in the sub-list, and the arguments are the rest of
             the items in the sublists. For example:
-            [['command1', 'arg1', 'arg2'], ['command2']]
+            ['command1', 'arg1', 'arg2']
         @retval Result code of some sort
         """
-        assert(isinstance(command, (list, tuple)))
+        assert(isinstance(command, tuple)), "Bad Driver client execute type"
         (content, headers, message) = yield self.rpc_send('execute',
                                                           command)
         defer.returnValue(content)
@@ -220,10 +229,16 @@ class InstrumentAgent(ResourceAgent):
     """
     state_topics = None
 
-    @defer.inlineCallbacks
     def plc_init(self):
         self.pubsub_client = DataPubsubClient(proc=self)
-
+        
+    @defer.inlineCallbacks
+    def _register_publisher(self):
+        publisher = PublisherResource.create("IA publisher", self,
+            self.output_topics.values() + self.event_topics.values() + self.state_topics.values(),
+            'DataObject')
+        publisher = yield self.pubsub_client.define_publisher(publisher)
+        
     @defer.inlineCallbacks
     def op_get_translator(self, content, headers, msg):
         """
@@ -274,15 +289,13 @@ class InstrumentAgent(ResourceAgent):
         #assert(isinstance(content, (list, tuple)))
         #assert(self.driver_client != None)
         response = {}
-        log.debug("*** getting from ci... %s", content)
         # get data somewhere, or just punt this lower in the class hierarchy
         if (ci_param_list['DriverAddress'] in content):
-            response[self.ci_param_list['DriverAddress']] = str(self.driver_client.target)
+            response[ci_param_list['DriverAddress']] = str(self.driver_client.target)
         
         if (ci_param_list['DataTopics'] in content):
             response[ci_param_list['DataTopics']] = {}
             for i in self.output_topics.keys():
-                log.debug("*** output_topics key %s: %s", i, self.output_topics[i])
                 response[ci_param_list['DataTopics']][i] = self.output_topics[i].encode()
         if (ci_param_list['StateTopics'] in content):
             response[ci_param_list['StateTopics']] = {}
@@ -293,7 +306,6 @@ class InstrumentAgent(ResourceAgent):
             for i in self.event_topics.keys():
                 response[ci_param_list['EventTopics']][i] = self.event_topics[i].encode()
 
-        log.debug("*** response from CI is %s", response) 
         if response != {}:
             yield self.reply_ok(msg, response)
         else:
@@ -408,18 +420,19 @@ class InstrumentAgent(ResourceAgent):
         @param command An ordered list of lists where the command name is the
             first item in the sub-list, and the arguments are the rest of
             the items in the sublists. For example:
-            [['command1', 'arg1', 'arg2'], ['command2']]
+            ['command1', 'arg1', 'arg2']
         @retval ACK message with response on success, ERR message with string
             indicating code and response message on fail
+        @todo fix the return value hack
         """
-        assert(isinstance(content, (list, tuple)))
+        assert(isinstance(content, tuple)), "Bad IA op_execute_instrument type"
         try:
-            execResult = yield self.driver_client.execute(content)
-            assert(isinstance(execResult, dict))
-            yield self.reply_ok(msg, execResult['value'])
+            result = yield self.driver_client.execute(content)
+            yield self.reply_ok(msg)
         except ReceivedError, re:
             yield self.reply_err(msg, "Failure, response is: %s"
                                  % re.msg_content['value'])
+
     @defer.inlineCallbacks
     def op_get_status(self, content, headers, msg):
         """
@@ -438,37 +451,75 @@ class InstrumentAgent(ResourceAgent):
     @defer.inlineCallbacks
     def op_publish(self, content, headers, msg):
         """
-        Collect data from the driver (and only the driver) to publish to the
-        correct topic.
-        @param content A dict including: a Type string of either "StateChange",
+        Collect data from a subprocess (usually the driver) to publish to the
+        correct topic, specific to the hardware device, not the agent.
+        @param content A dict including: a Type string of "StateChange",
           "ConfigChange", "Error", or "Data", and a Value string with the
           data or message that is to be published. Must also have "Transducer"
           to specify the transducer doing the chagne.
         """
-        assert(isinstance(content, list))
-        log.debug("Agent is publishing...")
-        log.debug("sender: %s, child_procs: %s, content: %s",
+        assert isinstance(content, dict), "InstrumentAgent op_publish argument error"
+        log.debug("Agent is publishing with sender: %s, child_procs: %s, content: %s",
                   headers["sender-name"], self.child_procs, content)
-        if (headers["sender-name"] in self.child_procs):
-            if (content["Value"] == "Data"):
-                result = yield self.pubsub_client.publish(self.sup,
-                            self.data_topics[content["Transducer"]].reference(),
+        if (self._is_child_process(headers["sender-name"])):
+            if (content["Type"] == publish_msg_type["Data"]):
+                result = yield self.pubsub_client.publish(self,
+                            self.output_topics[content["Transducer"]].reference(),
                             content["Value"])
-            elif ((content["Value"] == "Error")
+            elif ((content["Type"] == publish_msg_type["Error"])
                 or (content["Value"] == "ConfigChange")):
-                result = yield self.pubsub_client.publish(self.sup,
+                result = yield self.pubsub_client.publish(self,
                             self.event_topics[content["Transducer"]].reference(),
                             content["Value"])
-            elif (content["Value"] == "StateChange"):
-                result = yield self.pubsub_client.publish(self.sup,
+            elif (content["Type"] == publish_msg_type["StateChange"]):
+                result = yield self.pubsub_client.publish(self,
                             self.state_topics[content["Transducer"]].reference(),
-                                              content["Value"])
+                            content["Value"])
         else:
+            # Really should be handled better...what if there isnt a reply
+            # expected?
             yield self.reply_err(msg,
                                  "publish invoked from non-child process")
-        log.debug("publish result: %s", result)
         # return something...like maybe result?
     
+    @defer.inlineCallbacks
+    def _self_publish(self, type, value):
+        """
+        Publish a message from the instrument agent to one of the agent
+        pubsub topics. Possibly an event or a state change. Probably not data
+        @param type The type of information to publish (should be "Error",
+            "StateChange", "ConfigChange", "Event")
+        @todo Actually write a test case for this!
+        """
+        assert ((type == publish_msg_type["Error"]) or \
+            (type == publish_msg_type["Event"]) or \
+        (type == publish_msg_type["StateChange"]) or \
+        (type == publish_msg_type["ConfigChange"])), "Bad IA publish type"
+        
+        if (type == publish_msg_type["Error"]) or \
+            (type == publish_msg_type["Event"]) or \
+            (type == publish_msg_type["ConfigChange"]):
+                result = yield self.pubsub_client.publish(self.sup,
+                            self.event_topics["Agent"].reference(),value)
+        if (type == publish_msg_type["StateChange"]):
+                result = yield self.pubsub_client.publish(self.sup,
+                            self.state_topics["Agent"].reference(),value)
+    
+    def _is_child_process(self, name):
+        """
+        Determine if a process with the given name is a child process
+        @param name The name to test for subprocess-ness
+        @retval True if the name matches a child process name, False otherwise
+        """
+        log.debug("__is_child_process looking for process '%s' in %s",
+                  name, self.child_procs)
+        found = False
+        for proc in self.child_procs:
+            if proc.proc_name == name:
+                found = True
+                break
+        return found
+        
 class InstrumentAgentClient(ResourceAgentClient):
     """
     The base class for an Instrument Agent Client. It is a service
@@ -570,6 +621,7 @@ class InstrumentAgentClient(ResourceAgentClient):
                                                           command)
         defer.returnValue(content)
 
+    @defer.inlineCallbacks
     def execute_CI(self, command):
         """
         Execute the instrument commands in the order of the list.

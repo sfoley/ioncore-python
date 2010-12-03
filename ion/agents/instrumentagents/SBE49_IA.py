@@ -26,10 +26,11 @@ class SBE49InstrumentAgent(InstrumentAgent):
     """
     @defer.inlineCallbacks
     def plc_init(self):
+        InstrumentAgent.plc_init(self)
+
         """
         Initialize instrument driver when this process is started.
         """
-        InstrumentAgent.plc_init(self)
         self.instrument_id = self.spawn_args.get('instrument-id', '123')
         
         self.driver_args = self.spawn_args.get('driver-args', {})
@@ -49,6 +50,11 @@ class SBE49InstrumentAgent(InstrumentAgent):
         self.event_topics = {}
         self.state_topics = {}
         
+        # Should these three be defined in the instrument agent?
+        self.output_topics["Agent"] = PubSubTopicResource.create("OutputAgent" + self.instrument_id, "")
+        self.event_topics["Agent"] = PubSubTopicResource.create("EventAgent" + self.instrument_id, "")
+        self.state_topics["Agent"] = PubSubTopicResource.create("StateAgent" + self.instrument_id, "")
+
         self.output_topics["Device"] = PubSubTopicResource.create("OutputDevice" + self.instrument_id, "")
         self.event_topics["Device"] = PubSubTopicResource.create("EventDevice" + self.instrument_id, "")
         self.state_topics["Device"] = PubSubTopicResource.create("StateDevice" + self.instrument_id, "")
@@ -64,6 +70,9 @@ class SBE49InstrumentAgent(InstrumentAgent):
         for key in self.state_topics.keys():
             self.state_topics[key] = yield self.pubsub_client.define_topic(self.state_topics[key])
             log.info('Defined Topic: '+str(self.state_topics[key]))
+
+        # now register for all those topics
+        yield InstrumentAgent._register_publisher(self)
 
             ### Do we even need the publisher stuff below in each define?
             #Create and register self.sup as a publisher
@@ -114,14 +123,14 @@ class SBE49InstrumentAgent(InstrumentAgent):
         Do any translating from instrument agent interface commands to
         individual instrument commands
         """
-        assert isinstance(content, (tuple, list)), "SBE49 executing bad command list"
-        new_content = []
-        for item in content:
-            if (const.command_substitutions[item]):
-                new_content.append(const.command_substitutions[item])
-            else:
-                new_content.append(item)
-        InstrumentAgent.op_execute_instrument(self, tuple(new_content), headers, msg)
-
+        assert isinstance(content, tuple), "SBE49 executing bad command list"
+        new_content = list(content)
+        # Can probably be made more memory efficient with a generator
+        log.debug("*** content0: %s", content[0])
+        if (content[0] in const.command_substitutions):
+            new_content[0] = const.command_substitutions[content[0]]
+        log.debug("*** new_content: %s, old content: %s", new_content, content)
+        yield InstrumentAgent.op_execute_instrument(self, tuple(new_content), headers, msg)
+    
 # Spawn of the process using the module name
 factory = ProcessFactory(SBE49InstrumentAgent)

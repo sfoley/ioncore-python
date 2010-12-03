@@ -68,6 +68,7 @@ class TestInstrumentAgent(IonTestCase):
 
     @defer.inlineCallbacks
     def tearDown(self):
+        yield self.simulator.stop()
         child_id = yield self.sup.get_child_id('pubsub_service')
         pubsub = self._get_procinstance(child_id)
         pubsub.reg.clear_registry()
@@ -194,7 +195,7 @@ class TestInstrumentAgent(IonTestCase):
 
             #response = yield self.IAClient.execute_instrument([['start','now', 1],
             #                                                   ['stop']])
-            response = yield self.IAClient.execute_instrument([['start','now', 1]])
+            response = yield self.IAClient.execute_instrument(['start','now', 1])
             log.debug("response: %s " % response)
             self.assert_(isinstance(response, dict))
             self.assert_('start' in response['value'])
@@ -202,8 +203,8 @@ class TestInstrumentAgent(IonTestCase):
             yield pu.asleep(3)
 
             try:
-                response = yield self.IAClient.execute_instrument([['badcommand',
-                                                                'now','1']])
+                response = yield self.IAClient.execute_instrument(['badcommand',
+                                                                'now','1'])
                 self.fail("ReceivedError expected")
             except ReceivedError, re:
                 pass
@@ -260,34 +261,31 @@ class TestInstrumentAgent(IonTestCase):
     def test_publish(self):
         """
         Test the ability to publish events and data
+        @todo Assert something instead of just exercising the code
         """
         log.debug("Starting publish test\n")
         
         # Topics are setup by the agent already, so they should just exist
         param_list = yield self.IAClient.get_from_CI([IA.ci_param_list['DataTopics'],
                                                       IA.ci_param_list['EventTopics'],
-                                                      IA.ci_param_list['StateTopics']])
-        
-        log.debug("*** paramlist: %s", param_list)
-        
+                                                      IA.ci_param_list['StateTopics']])        
         # Setup a receiver
-        state_subscription = SubscriptionResource()
-        state_subscription.topic1 = param_list[IA.ci_param_list['StateTopics']]['Device']
+        data_subscription = SubscriptionResource()
+        data_subscription.topic1 = param_list[IA.ci_param_list['DataTopics']]['Device']
                 
-        state_subscription.workflow = {
-            'state_consumer':
+        data_subscription.workflow = {
+            'data_consumer':
                 {'module':'ion.services.dm.distribution.consumers.logging_consumer',
                  'consumerclass':'LoggingConsumer',\
                  'attach':'topic1'}}
         pubsub_client = DataPubsubClient()
-        state_subscription = yield pubsub_client.define_subscription(state_subscription)
-        log.info('Defined subscription: '+str(state_subscription))
+        data_subscription = yield pubsub_client.define_subscription(data_subscription)
+        log.info('Defined subscription: '+str(data_subscription))
         
         # change state of the driver, look for state and data messages
         result = yield self.IAClient.execute_instrument(["StartAcquisition"])
         yield pu.asleep(1)
         
-        # compare it to the receiver
+        # compare it to the receiver? But how?
         
-        # Add more stuff for the data path now
-        
+        # Test state changes? Events? Agent published events?

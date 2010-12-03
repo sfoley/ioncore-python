@@ -69,22 +69,6 @@ class TestSBE49(IonTestCase):
         # stop_SBE49_simulator(self.simproc)
         yield self._stop_container()
 
-    @defer.inlineCallbacks
-    def test_create_topic(self):
-        #dpsc = DataPubsubClient(self.pubsubSuper)
-
-        dpsc = DataPubsubClient(self.sup)
-        # Create and Register a topic
-        """
-        DHE: not sure the driver should be creating the topic; for right
-        now I'll have the test case do it.
-        """
-        self.topic = PubSubTopicResource.create('SBE49 Topic',"oceans, oil spill")
-        self.topic = yield dpsc.define_topic(self.topic)
-
-
-        log.debug('TADA!')
-
 
     @defer.inlineCallbacks
     def test_initialize(self):

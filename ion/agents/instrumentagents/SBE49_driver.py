@@ -30,7 +30,7 @@ from ion.resources.dm_resource_descriptions import Publication, PublisherResourc
 from ion.services.dm.distribution.pubsub_service import DataPubsubClient
 
 from ion.agents.instrumentagents.instrument_agent import InstrumentDriver, InstrumentAgentClient
-from ion.agents.instrumentagents.instrument_agent import InstrumentDriverClient
+from ion.agents.instrumentagents.instrument_agent import InstrumentDriverClient, publish_msg_type
 from ion.agents.instrumentagents.SBE49_constants import instrument_commands
 from ion.agents.instrumentagents.SBE49_constants import instrument_prompts
 
@@ -50,7 +50,7 @@ class SBE49_instCommandXlator():
         'ds' : 'ds',
         'getsample' : 'ts',
         'baud' : 'baud',
-        'start' : 'startnow',
+        'start' : 'start',
         'stop' : 'stop',
     }
 
@@ -349,10 +349,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
         elif caller.tEvt['sType'] == "eventDataReceived":
             log.info("stateConnected-%s;" %(caller.tEvt['sType']))
 
-            # send this up to the agent to publish.
-            data = self.dequeueData()            
-            log.debug("stateConnected() Calling publish.")
-            self.publish("StateChange", "Device", data)
+            data = self.dequeueData()
             if 'S>' in data:
                 caller.stateTran(self.statePrompted)
             else:
@@ -405,8 +402,6 @@ class SBE49InstrumentDriver(InstrumentDriver):
 
             # send this up to the agent to publish.
             data = self.dequeueData()            
-            log.debug("statePrompted() Calling publish.")
-            self.publish("StateChange", "Device", data)
             # TODO
             # Use CONSTANT STRING HERE
             # What if we go back to connected every time??? Don't think this
@@ -432,7 +427,6 @@ class SBE49InstrumentDriver(InstrumentDriver):
             return 0
         return caller.tEvt['sType']
 
-    @defer.inlineCallbacks
     def plc_init(self):
         log.debug("SBE49InstrumentDriver.plc_init: spawn_args: %s" %str(self.spawn_args))
         self.instrument_id = self.spawn_args.get('instrument-id', '123')
@@ -445,6 +439,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
         log.debug("!!!!!!!!!!!!!!!!!! Calling onStart!")
         self.hsm.onStart(self.stateUnconfigured)
 
+        
         self._configure_driver(self.spawn_args)
         log.info("INIT DRIVER for instrument ID=%s, ipaddr=%s, port=%s" % (
             self.instrument_id, self.instrument_ipaddr, self.instrument_ipport))
@@ -474,7 +469,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
         self.dataQueue.append(data)
 
     def dequeueData(self):
-        data = self.dataQueue.popleft()
+        data = self.dataQueue.pop(0)
         #log.debug("dequeueCmd: dequeueing command: %s" %data)
         return data
         
@@ -483,7 +478,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
         self.cmdQueue.append(cmd)
 
     def dequeueCmd(self):
-        cmd = self.cmdQueue.popleft()
+        cmd = self.cmdQueue.pop(0)
         #log.debug("dequeueCmd: dequeueing command: %s" %cmd)
         return cmd
 
@@ -502,12 +497,13 @@ class SBE49InstrumentDriver(InstrumentDriver):
     def ProcessCmdResponseTimeout(self):
         log.error("No response from instrument for cammand \'%s\'" % self.cmdQueue[0])
         self.cmdQueue = []
-        self.publish("No response from instrument for cammand \'%s\'".format(self.cmdQueue[0]), self.publish_to)
+        self.publish(publish_msg_type["Error"], "Device",
+                     "No response from instrument for cammand \'%s\'" % self.cmdQueue[0])
 
     def ProcessWakeupResponseTimeout(self):
         log.error("No response from instrument for wakeup")
         self.cmdQueue = []
-        self.publish("No response from instrument for wakeup", self.publish_to)
+        self.publish(publish_msg_type["Error"], "Device", "No response from instrument for wakeup")
       
     def sendCmd(self, cmd):
         log.debug("Sending Command: %s" %cmd)
@@ -596,6 +592,14 @@ class SBE49InstrumentDriver(InstrumentDriver):
         else:
             log.debug("gotData() %s." % (data))
             self.enqueueData(data)
+            # if we didnt get a prompt, publish it!
+            if (data != instrument_prompts.PROMPT_INST) and \
+               (data != instrument_prompts.INST_SLEEPY_PROMPT) and \
+               (data != instrument_prompts.INST_PROMPT) and \
+               (data != instrument_prompts.INST_CONFUSED) and \
+               (data != "S>"):
+                log.debug("stateConnected() Calling publish.")
+                self.publish(publish_msg_type["Data"], "Device", data)
             #self.hsm.onEvent('eventDataReceived')
             self.hsm.sendEvent('eventDataReceived')
         
@@ -615,9 +619,9 @@ class SBE49InstrumentDriver(InstrumentDriver):
         @param transducer The transducer name to indicate which queue to publish on
         @param data The message to be published
         """
-        log.debug("driver publish()")
+        log.debug("SBE49Driver is publishing to the agent value: %s", data)
         # send it to our supervisor
-        yield self.send(self.proc_supid, publish, {"Type":topic, "Transducer":transducer, "Value":data})
+        yield self.send(self.proc_supid, "publish", {"Type":topic, "Transducer":transducer, "Value":data})
 
     @defer.inlineCallbacks
     def op_initialize(self, content, headers, msg):
@@ -695,37 +699,36 @@ class SBE49InstrumentDriver(InstrumentDriver):
         """
         Execute the given command structure (first element command, rest
         of the elements are arguments)
-        @todo actually do something
+        @todo Consider making this handle multiple commands?
         """
-        assert(isinstance(content, (tuple, list)))
+        log.debug("*** in driver op_Execute")
 
-        log.debug("op_execute content: %s" % content)
-
+        log.debug("*** driver op_execute content: %s" % content)
         if ((content == ()) or (content == [])):
             yield self.reply_err(msg, "Empty command")
             return
         agentCommands = []
-        for command in content:
-            if command not in instrument_commands:
-                log.error("Invalid Command: %s" % command)
-                yield self.reply_err(msg, "Invalid Command")
-            else:
-                log.debug("op_execute translating command: %s" % command)
-                instCommand = self.instCmdXlator.translate(command)
-                log.debug("op_execute would send command: %s to instrument" % instCommand)
-                instCommand += instrument_prompts.PROMPT_INST
+        
+        if content[0] not in instrument_commands:
+            log.error("Invalid Command: %s" % content[0])
+            yield self.reply_err(msg, "Invalid Command")
+        else:
+            log.debug("op_execute translating command: %s" % content[0])
+            instCommand = self.instCmdXlator.translate(content[0])
+            log.debug("op_execute would send command: %s to instrument" % instCommand)
+            instCommand += instrument_prompts.PROMPT_INST
 
-                self.enqueueCmd(instCommand)
+            self.enqueueCmd(instCommand)
 
-                """
-                Send the command received event.  This should kick off the
-                appropriate sequence of events to get the command sent.
-                """
-                #self.hsm.onEvent('eventCommandReceived')
-                self.hsm.sendEvent('eventCommandReceived')
+            """
+            Send the command received event.  This should kick off the
+            appropriate sequence of events to get the command sent.
+            """
+            #self.hsm.onEvent('eventCommandReceived')
+            self.hsm.sendEvent('eventCommandReceived')
 
-                agentCommands.append(command)
-                yield self.reply_ok(msg, agentCommands)
+            agentCommands.append(content[0])
+            yield self.reply_ok(msg, agentCommands)
 
 
     @defer.inlineCallbacks
