@@ -139,8 +139,8 @@ class Instrument(protocol.Protocol):
         @param none
         @retval none
         """
-        # Print prompt
-        self.transport.write(self.prompt)
+        # Not sending a prompt at startup anymore. 
+        #self.transport.write(self.prompt)
         self.factory.connections.append(self)
 
     def dataReceived(self, data):
@@ -324,7 +324,7 @@ class Simulator(object):
                     return NO_PORT_NUMBER_FOUND
         self.state = "STARTED"
         log.info("Started SBE49 simulator for ID %s on port %d" % (self.instrument_id, self.port))
-        return self.port
+        return [self.port, 0]
 
     @defer.inlineCallbacks
     def stop(self):

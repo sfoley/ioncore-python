@@ -7,14 +7,20 @@
 """
 
 class instrument_prompts:
+    ADCP_LINE_TERMINATOR = "\r\n"
+    DRIVER_LINE_TERMINATOR = "\r"
     PROMPT_INST = "\r\n"
     INST_PROMPT = ">"
 
 instrument_commands = (
+    "start",
+    "stop",
+    "break",
     "cf",
     "ck",
     "cr",
     "cs",
+    "cz",
     "ea",
     "ed",
     "es",
@@ -47,7 +53,7 @@ Maybe some day these values are looked up from a registry of common
 controlled vocabulary
 """
 instrument_parameters = (
-    "baudrate"
+    "baudrate",
 )
 
 """

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-@file ion/agents/instrumentagents/test/test_instrument.py
+@file ion/agents/instrumentagents/test/test_WHSentinelADCP_instrument.py
 @brief This test file should test logic that is common across various
     instrument agent classes. This might include registration, lifecycle
     set/get, etc. It may use a specific class as an example, but
@@ -22,15 +22,14 @@ from ion.test.iontest import IonTestCase
 from ion.agents.instrumentagents import instrument_agent as IA
 from ion.services.coi.agent_registry import AgentRegistryClient
 from ion.resources.ipaa_resource_descriptions import InstrumentAgentResourceInstance
-from ion.resources.dm_resource_descriptions import SubscriptionResource
-from ion.services.dm.distribution.pubsub_service import DataPubsubClient
-from ion.agents.instrumentagents.SBE49_constants import ci_commands as IACICommands
-from ion.agents.instrumentagents.SBE49_constants import ci_parameters as IACIParameters
-from ion.agents.instrumentagents.SBE49_constants import instrument_commands as IAInstCommands
-from ion.agents.instrumentagents.SBE49_constants import instrument_parameters as IAInstParameters
-from ion.agents.instrumentagents.simulators.sim_SBE49 import Simulator
+from ion.agents.instrumentagents.WHSentinelADCP_constants import ci_commands as IACICommands
+from ion.agents.instrumentagents.WHSentinelADCP_constants import ci_parameters as IACIParameters
+from ion.agents.instrumentagents.WHSentinelADCP_constants import instrument_commands as IAInstCommands
+from ion.agents.instrumentagents.WHSentinelADCP_constants import instrument_parameters as IAInstParameters
+from ion.agents.instrumentagents.simulators.sim_WHSentinelADCP import Simulator
 from ion.core.exception import ReceivedError
 import ion.util.procutils as pu
+
 
 class TestInstrumentAgent(IonTestCase):
 
@@ -38,24 +37,19 @@ class TestInstrumentAgent(IonTestCase):
     def setUp(self):
         yield self._start_container()
 
-        # startup a simulator
-        self.simulator = Simulator("123", 9000)
-        self.SimulatorPort = self.simulator.start()
-        self.assertNotEqual(self.SimulatorPort, 0)
-        
         # Start an instrument agent
         processes = [
             {'name':'pubsub_registry','module':'ion.services.dm.distribution.pubsub_registry','class':'DataPubSubRegistryService'},
             {'name':'pubsub_service','module':'ion.services.dm.distribution.pubsub_service','class':'DataPubsubService'},
             {'name':'agent_registry',
              'module':'ion.services.coi.agent_registry',
-             'class':'AgentRegistryService'},
-            {'name':'testSBE49IA',
-             'module':'ion.agents.instrumentagents.SBE49_IA',
-             'class':'SBE49InstrumentAgent'}
+             'class':'ResourceRegistryService'},
+            {'name':'testWHSentinelADCPIA',
+             'module':'ion.agents.instrumentagents.WHSentinelADCP_IA',
+             'class':'WHSentinelADCPInstrumentAgent'},
         ]
         self.sup = yield self._spawn_processes(processes)
-        self.svc_id = yield self.sup.get_child_id('testSBE49IA')
+        self.svc_id = yield self.sup.get_child_id('testWHSentinelADCPIA')
         self.reg_id = yield self.sup.get_child_id('agent_registry')
 
         # Start a client (for the RPC)
@@ -68,17 +62,10 @@ class TestInstrumentAgent(IonTestCase):
 
     @defer.inlineCallbacks
     def tearDown(self):
-        yield self.simulator.stop()
-        child_id = yield self.sup.get_child_id('pubsub_service')
-        pubsub = self._get_procinstance(child_id)
-        pubsub.reg.clear_registry()
-        
-        yield pu.asleep(1)
-        
         yield self._stop_container()
 
     @defer.inlineCallbacks
-    def test_get_SBE49_capabilities(self):
+    def test_get_WHSentinelADCP_capabilities(self):
         """
         Test the ability to gather capabilities from the SBE49 instrument
         capabilities
@@ -95,7 +82,7 @@ class TestInstrumentAgent(IonTestCase):
                      result[IA.instrument_parameters])
 
     @defer.inlineCallbacks
-    def test_get_set_SBE49_params(self):
+    def test_get_set_WHSentinelADCP_params(self):
         """
         Test the ability of the SBE49 driver to send and receive get, set,
         and other messages. Best called as RPC message pairs.
@@ -109,33 +96,29 @@ class TestInstrumentAgent(IonTestCase):
 
         try:
 
-            response = yield self.IAClient.get_from_instrument(['baudrate',
-                                                                'outputformat'])
+            response = yield self.IAClient.get_from_instrument(['baudrate'])
             self.assertEqual(response['baudrate'], 9600)
-            self.assertEqual(response['outputformat'], 0)
 
-            response = yield self.IAClient.set_to_instrument({'baudrate': 19200,
-                                                'outputformat': 1})
+            response = yield self.IAClient.set_to_instrument({'baudrate': 19200})
             self.assertEqual(response['baudrate'], 19200)
-            self.assertEqual(response['outputformat'], 1)
 
-            response = yield self.IAClient.get_from_instrument(['baudrate',
-                                                                'outputformat'])
+            # Sleep for a while to allow driver to wakeup simulator.
+            yield pu.asleep(1)
+            
+            response = yield self.IAClient.get_from_instrument(['baudrate'])
             self.assertEqual(response['baudrate'], 19200)
-            self.assertEqual(response['outputformat'], 1)
-
-            response = yield self.IAClient.set_to_instrument({'outputformat': 2})
-            self.assertEqual(response['outputformat'], 2)
 
             # Try setting something bad
             try:
                 response = yield self.IAClient.set_to_instrument({'baudrate': 19200,
-                                                    'badvalue': 1})
+                                                                  'badvalue': 1})
                 self.fail("ReceivedError expected")
-            except ReceivedError:
+            except ReceivedError, re:
                 pass
 
         finally:
+            # Sleep for a while to allow driver to whatever.
+            yield pu.asleep(1)
             yield self.simulator.stop()
 
     @defer.inlineCallbacks
@@ -195,18 +178,18 @@ class TestInstrumentAgent(IonTestCase):
 
             #response = yield self.IAClient.execute_instrument([['start','now', 1],
             #                                                   ['stop']])
-            response = yield self.IAClient.execute_instrument(['start', 'now', 1])
+            response = yield self.IAClient.execute_instrument([['start','now', 1]])
             log.debug("response: %s " % response)
             self.assert_(isinstance(response, dict))
             self.assert_('start' in response['value'])
             #self.assert_('stop' in response['value'])
-            yield pu.asleep(3)
+            yield pu.asleep(6)
 
             try:
-                response = yield self.IAClient.execute_instrument(['badcommand',
-                                                                'now','1'])
+                response = yield self.IAClient.execute_instrument([['badcommand',
+                                                                'now','1']])
                 self.fail("ReceivedError expected")
-            except ReceivedError, re:
+            except ReceivedError:
                 pass
 
             try:
@@ -256,36 +239,3 @@ class TestInstrumentAgent(IonTestCase):
         #xlateFn = yield self.IAClient.getTranslator()
         #self.assert_(inspect.isroutine(xlateFn))
         #self.assert_(xlateFn('foo') == 'foo')
-        
-    @defer.inlineCallbacks
-    def test_publish(self):
-        """
-        Test the ability to publish events and data
-        @todo Assert something instead of just exercising the code
-        """
-        log.debug("Starting publish test\n")
-        
-        # Topics are setup by the agent already, so they should just exist
-        param_list = yield self.IAClient.get_from_CI([IA.ci_param_list['DataTopics'],
-                                                      IA.ci_param_list['EventTopics'],
-                                                      IA.ci_param_list['StateTopics']])        
-        # Setup a receiver
-        data_subscription = SubscriptionResource()
-        data_subscription.topic1 = param_list[IA.ci_param_list['DataTopics']]['Device']
-                
-        data_subscription.workflow = {
-            'data_consumer':
-                {'module':'ion.services.dm.distribution.consumers.logging_consumer',
-                 'consumerclass':'LoggingConsumer',\
-                 'attach':'topic1'}}
-        pubsub_client = DataPubsubClient()
-        data_subscription = yield pubsub_client.define_subscription(data_subscription)
-        log.info('Defined subscription: '+str(data_subscription))
-        
-        # change state of the driver, look for state and data messages
-        result = yield self.IAClient.execute_instrument(["StartAcquisition"])
-        yield pu.asleep(5)
-        
-        # compare it to the receiver? But how?
-        
-        # Test state changes? Events? Agent published events?
