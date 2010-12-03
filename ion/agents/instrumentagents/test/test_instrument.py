@@ -100,43 +100,31 @@ class TestInstrumentAgent(IonTestCase):
         Test the ability of the SBE49 driver to send and receive get, set,
         and other messages. Best called as RPC message pairs.
         """
+        response = yield self.IAClient.get_from_instrument(['baudrate',
+                                                                'outputformat'])
+        self.assertEqual(response['baudrate'], 9600)
+        self.assertEqual(response['outputformat'], 0)
 
-        self.simulator = Simulator("123", 9000)
-        self.simulator.start()
+        response = yield self.IAClient.set_to_instrument({'baudrate': 19200,
+                                            'outputformat': 1})
+        self.assertEqual(response['baudrate'], 19200)
+        self.assertEqual(response['outputformat'], 1)
 
-        # Sleep for a while to allow simlator to get set up.
-        yield pu.asleep(1)
+        response = yield self.IAClient.get_from_instrument(['baudrate',
+                                                            'outputformat'])
+        self.assertEqual(response['baudrate'], 19200)
+        self.assertEqual(response['outputformat'], 1)
 
+        response = yield self.IAClient.set_to_instrument({'outputformat': 2})
+        self.assertEqual(response['outputformat'], 2)
+
+        # Try setting something bad
         try:
-
-            response = yield self.IAClient.get_from_instrument(['baudrate',
-                                                                'outputformat'])
-            self.assertEqual(response['baudrate'], 9600)
-            self.assertEqual(response['outputformat'], 0)
-
             response = yield self.IAClient.set_to_instrument({'baudrate': 19200,
-                                                'outputformat': 1})
-            self.assertEqual(response['baudrate'], 19200)
-            self.assertEqual(response['outputformat'], 1)
-
-            response = yield self.IAClient.get_from_instrument(['baudrate',
-                                                                'outputformat'])
-            self.assertEqual(response['baudrate'], 19200)
-            self.assertEqual(response['outputformat'], 1)
-
-            response = yield self.IAClient.set_to_instrument({'outputformat': 2})
-            self.assertEqual(response['outputformat'], 2)
-
-            # Try setting something bad
-            try:
-                response = yield self.IAClient.set_to_instrument({'baudrate': 19200,
-                                                    'badvalue': 1})
-                self.fail("ReceivedError expected")
-            except ReceivedError:
-                pass
-
-        finally:
-            yield self.simulator.stop()
+                                                'badvalue': 1})
+            self.fail("ReceivedError expected")
+        except ReceivedError:
+            log.debug("*** caught RE")
 
     @defer.inlineCallbacks
     def test_registration(self):
@@ -188,35 +176,27 @@ class TestInstrumentAgent(IonTestCase):
         Test the ability of the SBE49 driver to execute commands through the
         InstrumentAgentClient class
         """
-        self.simulator = Simulator("123", 9000)
-        self.simulator.start()
+        #response = yield self.IAClient.execute_instrument([['start','now', 1],
+        #                                                   ['stop']])
+        response = yield self.IAClient.execute_instrument(['start', 'now', 1])
+        log.debug("response: %s " % response)
+        self.assert_(isinstance(response, dict))
+        self.assert_('start' in response['value'])
+        #self.assert_('stop' in response['value'])
+        yield pu.asleep(3)
 
         try:
+            response = yield self.IAClient.execute_instrument(['badcommand',
+                                                            'now','1'])
+            self.fail("ReceivedError expected")
+        except ReceivedError, re:
+            pass
 
-            #response = yield self.IAClient.execute_instrument([['start','now', 1],
-            #                                                   ['stop']])
-            response = yield self.IAClient.execute_instrument(['start', 'now', 1])
-            log.debug("response: %s " % response)
-            self.assert_(isinstance(response, dict))
-            self.assert_('start' in response['value'])
-            #self.assert_('stop' in response['value'])
-            yield pu.asleep(3)
-
-            try:
-                response = yield self.IAClient.execute_instrument(['badcommand',
-                                                                'now','1'])
-                self.fail("ReceivedError expected")
-            except ReceivedError, re:
-                pass
-
-            try:
-                response = yield self.IAClient.execute_instrument([])
-                self.fail("ReceivedError expected")
-            except ReceivedError:
-                pass
-
-        finally:
-            yield self.simulator.stop()
+        try:
+            response = yield self.IAClient.execute_instrument([])
+            self.fail("ReceivedError expected")
+        except ReceivedError:
+            pass
 
     @defer.inlineCallbacks
     def test_get_driver_proc(self):
@@ -284,7 +264,7 @@ class TestInstrumentAgent(IonTestCase):
         
         # change state of the driver, look for state and data messages
         result = yield self.IAClient.execute_instrument(["StartAcquisition"])
-        yield pu.asleep(5)
+        yield pu.asleep(10)
         
         # compare it to the receiver? But how?
         

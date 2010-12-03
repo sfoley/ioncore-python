@@ -552,9 +552,9 @@ class InstrumentAgentClient(ResourceAgentClient):
                                                           paramList)
         assert(isinstance(content, dict))
         for key in content.keys():
-            if (key == ci_param_list['DataTopics'] or
-                       ci_param_list['EventTopics'] or
-                       ci_param_list['StateTopics']):
+            if (key == ci_param_list['DataTopics']) or \
+                (key == ci_param_list['EventTopics']) or \
+                       (key == ci_param_list['StateTopics']):
                 for entry in content[key].keys():
                     content[key][entry] = DataObject.decode(content[key][entry])
         defer.returnValue(content)
