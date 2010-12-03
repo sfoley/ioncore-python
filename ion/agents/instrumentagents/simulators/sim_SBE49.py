@@ -74,6 +74,7 @@ class Instrument(protocol.Protocol):
         'alpha' : prompt,
         'tau' : prompt,
         'start' : prompt,
+        'startnow' : prompt,
         'stop' : prompt,
         'pumpon' : prompt,
         'pumpoff' : prompt,
@@ -184,7 +185,7 @@ class Instrument(protocol.Protocol):
                     log.debug("Starting test samples")
                     self.startTestSamples()
                     self.testRunning = 'true'
-            elif command == "start":
+            elif command == "startnow":
                 """
                 @note If start command is received, and the SBE49 is in autonomous
                 mode, and the instrument is not already running a test, start
