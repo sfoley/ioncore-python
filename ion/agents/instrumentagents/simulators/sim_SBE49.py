@@ -255,14 +255,14 @@ class Instrument(protocol.Protocol):
         self.transport.write(self.get_next_sample())
 
     def get_next_sample(self):
-        sampleData = '21.9028,  1.00012,    1.139,   1.0103\n'
+        sampleData = '21.9028,  1.00012,    1.139,   1.0103\r\n'
         self.sample_cnt += 1
         cnt = self.sample_cnt
         value1 = 10.0 + 5.0 * math.sin(float(cnt) / 5.0)
         value2 = 7.00012 * random.random()
         value3 = 3.139 + random.random()
         value4 = 1.0103 + random.random()
-        valstr = "%1.4f,  %1.5f,   %1.3f,   %1.3f\n" % (value1,value2,value3,value4)
+        valstr = "%1.4f,  %1.5f,   %1.3f,   %1.3f\r\n" % (value1,value2,value3,value4)
         #return self.sampleData
         return valstr
 
