@@ -91,7 +91,9 @@ class SBE49InstrumentDriver(InstrumentDriver):
         self.setConnected(False)
         self.setTopicDefined(False)
         self.publish_to = None
+        self.outlierQueue = ""
         self.dataQueue = ""
+        self.publishLine = ""
         self.cmdQueue = deque([])
         self.proto = None
         self.TimeOut = None
@@ -318,13 +320,14 @@ class SBE49InstrumentDriver(InstrumentDriver):
             return 0
         elif caller.tEvt['sType'] == "eventDataReceived":
             # send this up to the agent to publish.
-            data = self.dequeueData()            
+            data = self.getPublishLine()            
             log.debug("stateConnected() Calling publish.")
             self.publish(data, self.publish_to)
             if 'S>' in data:
+                log.debug("OH NO OH NO OH NO!!  Received Prompt")
                 caller.stateTran(self.statePrompted)
-            else:
-                log.debug("Did not receive prompt")
+            #else:
+            #    log.debug("Did not receive prompt")
             return 0
         elif caller.tEvt['sType'] == "eventPromptReceived":
             #
@@ -381,7 +384,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
             return 0
         elif caller.tEvt['sType'] == "eventDataReceived":
             # send this up to the agent to publish.
-            data = self.dequeueData()            
+            data = self.getPublishLine()            
             log.debug("statePrompted() Calling publish.")
             self.publish(data, self.publish_to)
             # TODO
@@ -472,12 +475,24 @@ class SBE49InstrumentDriver(InstrumentDriver):
     def setAgentService(self, agent):
         self.agent = agent
         
+    def enqueueOutlier(self, data):
+        self.outlierQueue += data
+
+    def dequeueOutlier(self):
+        outlier = self.outlierQueue
+        log.debug("dequeuePrompt: dequeued outlier: %s" %outlier)
+        self.outlierQueue = ""
+        return outlier
+
+    def lenOutlier(self):
+        return len(self.outlierQueue)
+        
     def enqueueData(self, data):
         self.dataQueue += data
 
     def dequeueData(self):
         data = self.dataQueue
-        log.debug("dequeueData: dequeued data: %s" %data)
+        #log.debug("dequeueData: dequeued data: %s" %data)
         self.dataQueue = ""
         return data
 
@@ -486,6 +501,16 @@ class SBE49InstrumentDriver(InstrumentDriver):
         
     def lenData(self):
         return len(self.dataQueue)
+
+    def getPublishLine(self):
+        data = self.publishLine
+        #log.debug("dequeueData: dequeued data: %s" %data)
+        self.publishLine = ""
+        return data
+
+    def setPublishLine(self, data):
+        log.debug("setPublishLine: line: %s" %data)
+        self.publishLine = data
 
     def enqueueCmd(self, cmd):
         log.debug("enqueueCmd: enqueueing command: %s" %cmd)
@@ -604,14 +629,19 @@ class SBE49InstrumentDriver(InstrumentDriver):
             log.debug("gotData: cancelling timer.")
             self.TimeOut.cancel()
             self.TimeOut = None
-        else:
-            log.debug("gotData: NOT cancelling timer")
 
         if dataFrag == instrument_prompts.INST_GONE_TO_SLEEP:
             log.debug("gotData(): Instrument is now asleep.")
             self.hsm.sendEvent('eventInstrumentAsleep')
-        else:            
-            log.debug("gotData(): enqueueing dataFrag: %s" % dataFrag)
+        else:
+            #
+            # check for outlier character; if there, insert into queue first
+            # 
+            if self.lenOutlier() > 0:
+                #log.debug("CULPRIT BEING ADDED")
+                self.enqueueData(self.dequeueOutlier())
+                
+            #log.debug("gotData(): enqueueing dataFrag: %s" % dataFrag)
             self.enqueueData(dataFrag)
     
             #
@@ -627,6 +657,18 @@ class SBE49InstrumentDriver(InstrumentDriver):
             #
             if instrument_prompts.LINE_TERM in data:
                 #
+                # Need to remove anything behind the LINE_TERM; could be
+                # partial INST_PROMPT
+                #
+                parts = data.partition(instrument_prompts.LINE_TERM)
+                if parts[2] != "":
+                    #log.debug("PARTS IS PARTS: %s" % str(parts))
+                    #
+                    # This fragment needs to be added to the next bunch.
+                    #
+                    self.enqueueOutlier(parts[2])
+                    
+                #
                 # If we got an INST_SLEEPY_PROMPT (the instrument
                 # sends this when it's been prompted and was asleep), then we can
                 # send the eventPromptReceived.  We could still have data in the
@@ -635,7 +677,12 @@ class SBE49InstrumentDriver(InstrumentDriver):
                 if instrument_prompts.INST_SLEEPY_PROMPT in data:
                     log.debug("gotData2(): sleepy prompt seen")
                     self.hsm.sendEvent('eventPromptReceived')
-                log.debug("gotData(): got line of data: sending eventDataReceived.")
+                #log.debug("gotData(): got line of data: sending eventDataReceived.")
+                self.setPublishLine(parts[0])
+                #
+                # TODO: This line returns data but we're just deleting here.
+                #
+                self.dequeueData()                
                 self.hsm.sendEvent('eventDataReceived')
        
     @defer.inlineCallbacks
@@ -647,7 +694,6 @@ class SBE49InstrumentDriver(InstrumentDriver):
         topic as defined by pubsub.
         @retval none
         """
-        log.debug("publish()")
         if self.isTopicDefined() == True:
 
             # Create and send a data message
@@ -657,7 +703,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
             else:
                 log.info('Failed to Published Message')
         else:
-            log.info("NOT READY TO PUBLISH")
+            log.info("publish(): no topic defined.")
 
 
     @defer.inlineCallbacks
