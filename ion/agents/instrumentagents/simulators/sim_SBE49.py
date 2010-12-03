@@ -324,7 +324,7 @@ class Simulator(object):
                     return NO_PORT_NUMBER_FOUND
         self.state = "STARTED"
         log.info("Started SBE49 simulator for ID %s on port %d" % (self.instrument_id, self.port))
-        return self.port
+        return [self.port, 0]
 
     @defer.inlineCallbacks
     def stop(self):

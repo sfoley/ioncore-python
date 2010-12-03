@@ -231,6 +231,9 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
         elif caller.tEvt['sType'] == "eventDisconnectReceived":
             caller.stateTran(self.stateDisconnecting)
             return 0
+        elif caller.tEvt['sType'] == "eventDisconnectComplete":
+            caller.stateTran(self.stateDisconnected)
+            return 0
         return caller.tEvt['sType']
 
     def stateConnected(self, caller):
@@ -254,8 +257,7 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
             return 0
         elif caller.tEvt['sType'] == "eventPromptReceived":
             if self.TimeOut != None:
-                self.TimeOut.cancel()
-                self.TimeOut = None
+                self.__terminateTimer()
             caller.stateTran(self.statePrompted)
             return 0
         elif caller.tEvt['sType'] == "eventDisconnectReceived":
@@ -263,6 +265,9 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
             return 0
         elif caller.tEvt['sType'] == "eventResponseTimeout":
             self.ProcessWakeupResponseTimeout()
+            return 0
+        elif caller.tEvt['sType'] == "eventDisconnectComplete":
+            caller.stateTran(self.stateDisconnected)
             return 0
         return caller.tEvt['sType']
 
@@ -301,6 +306,9 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
             return 0
         elif caller.tEvt['sType'] == "eventDisconnectReceived":
             caller.stateTran(self.stateDisconnecting)
+            return 0
+        elif caller.tEvt['sType'] == "eventDisconnectComplete":
+            caller.stateTran(self.stateDisconnected)
             return 0
         return caller.tEvt['sType']
 
@@ -350,8 +358,7 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
     @defer.inlineCallbacks
     def plc_terminate(self):
         if self.TimeOut != None:
-            self.TimeOut.cancel()
-            self.TimeOut = None
+            self.__terminateTimer()
         yield self.hsm.sendEvent('eventDisconnectReceived')
 
 
@@ -394,20 +401,29 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
             return False
         
 
+    def __terminateTimer(self):
+        if self.TimeOut != None:
+            log.debug("Timer active: cancelling")
+            self.TimeOut.cancel()
+            self.TimeOut = None
+            
     def TimeoutCallback(self, Reason):
         if Reason == "C":
             log.info("TimeoutCallback() for Command")
         else:
             log.info("TimeoutCallback() for Break")
         if self.TimeOut != None:
-            self.TimeOut = None
+            self.__terminateTimer()
             self.hsm.sendEvent('eventResponseTimeout')
         
 
     def ProcessCmdResponseTimeout(self):
-        log.error("No response from instrument for cammand \'%s\'" % self.cmdQueue[0])
-        self.publish("No response from instrument for cammand \'%s\'".format(self.cmdQueue[0]), self.publish_to)
-        self.cmdQueue = []
+        if len(self.cmdQueue) > 0:     
+            log.error("No response from instrument for cammand \'%s\'" % self.cmdQueue[0])
+            self.publish("No response from instrument for cammand \'%s\'".format(self.cmdQueue[0]), self.publish_to)
+            self.cmdQueue = []
+        else:
+            log.error("No cammand in command queue after command-response-timeout")
         self.NoResponseIsError = False
  
 
@@ -472,11 +488,10 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
             if len(self.cmdQueue) > 0:
                 Cmd = self.PeekCmd()
                 log.debug("looking for command %s in %s" % (Cmd, partition[0]))
-                if (((Cmd == "break") and ("BREAK Wakeup A" in partition[0])) or
+                if (((Cmd == "break") and ("BREAK Wakeup A" in partition[0]) and (self.SendingBreak != True)) or
                     (Cmd in partition[0])):
                     if self.TimeOut != None:
-                        self.TimeOut.cancel()
-                        self.TimeOut = None
+                        self.__terminateTimer()
                     log.info("Response to command \'%s\' received" % Cmd)
                     self.dequeueCmd()
                     if self.cmdPending():
@@ -581,10 +596,10 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
                     DataAsHex += ","
                 DataAsHex += "{0:X}".format(ord(data[i]))
             log.debug("gotData() [%s] [%s]" % (data, DataAsHex))
-        if instrument_prompts.INST_PROMPT in data:
+        self.dataQueue += data
+        if instrument_prompts.INST_PROMPT in self.dataQueue:
             log.info("gotData(): prompt seen")
             self.hsm.sendEvent('eventPromptReceived')
-        self.dataQueue += data
         self.hsm.sendEvent('eventDataReceived')
         
 
@@ -621,8 +636,7 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
     def op_disconnect(self, content, headers, msg):
         log.debug("in Instrument Driver op_disconnect!")
         if self.TimeOut != None:
-            self.TimeOut.cancel()
-            self.TimeOut = None
+            self.__terminateTimer()
         self.hsm.sendEvent('eventDisconnectReceived')
         if msg:
             yield self.reply_ok(msg, content)
