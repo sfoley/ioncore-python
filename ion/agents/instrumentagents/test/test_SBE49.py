@@ -44,7 +44,9 @@ class TestSBE49(IonTestCase):
         yield self._start_container()
 
         self.simulator = Simulator("123", 9100)
-        self.SimulatorPort = self.simulator.start()
+        SimulatorPorts = self.simulator.start()
+        log.info("Simulator ports = %s" %SimulatorPorts)
+        self.SimulatorPort = SimulatorPorts[0]
         self.assertNotEqual(self.SimulatorPort, 0)
 
         services = [
