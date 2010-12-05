@@ -124,7 +124,7 @@ class TestInstrumentAgent(IonTestCase):
                                                 'badvalue': 1})
             self.fail("ReceivedError expected")
         except ReceivedError:
-            log.debug("*** caught RE")
+            log.debug("Correctly caught a ReceivedError")
 
     @defer.inlineCallbacks
     def test_registration(self):
@@ -189,7 +189,7 @@ class TestInstrumentAgent(IonTestCase):
             response = yield self.IAClient.execute_instrument(['badcommand',
                                                             'now','1'])
             self.fail("ReceivedError expected")
-        except ReceivedError, re:
+        except ReceivedError:
             pass
 
         try:
@@ -263,7 +263,7 @@ class TestInstrumentAgent(IonTestCase):
         log.info('Defined subscription: '+str(data_subscription))
         
         # change state of the driver, look for state and data messages
-        result = yield self.IAClient.execute_instrument(["StartAcquisition"])
+        yield self.IAClient.execute_instrument(["StartAcquisition"])
         yield pu.asleep(10)
         
         # compare it to the receiver? But how?

@@ -16,7 +16,6 @@ from ion.core.process.service_process import ServiceProcess
 """
 
 # DHE: testing the miros HSM
-import miros
 from instrument_hsm import InstrumentHsm
 
 from ion.agents.instrumentagents.instrument_connection import InstrumentConnection
@@ -24,17 +23,11 @@ from twisted.internet.protocol import ClientCreator
 
 from collections import deque
 
-from ion.core.process.process import Process
-from ion.data.dataobject import ResourceReference
-from ion.resources.dm_resource_descriptions import Publication, PublisherResource, PubSubTopicResource, SubscriptionResource, DAPMessageObject
-from ion.services.dm.distribution.pubsub_service import DataPubsubClient
-
-from ion.agents.instrumentagents.instrument_agent import InstrumentDriver, InstrumentAgentClient
+from ion.agents.instrumentagents.instrument_agent import InstrumentDriver
 from ion.agents.instrumentagents.instrument_agent import InstrumentDriverClient, publish_msg_type
 from ion.agents.instrumentagents.SBE49_constants import instrument_commands
 from ion.agents.instrumentagents.SBE49_constants import instrument_prompts
 
-import ion.util.procutils as pu
 from threading import Timer
 
 from ion.core.process.process import ProcessFactory
@@ -50,7 +43,7 @@ class SBE49_instCommandXlator():
         'ds' : 'ds',
         'getsample' : 'ts',
         'baud' : 'baud',
-        'start' : 'start',
+        'start' : 'startnow',
         'stop' : 'stop',
     }
 
@@ -679,7 +672,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
                 self.hsm.sendEvent('eventDataReceived')
        
     @defer.inlineCallbacks
-    def publish(self, data, topic):
+    def publish(self, topic, transducer, data):
         """
         Collect some publishable information to hand back to the agent for
         publishing

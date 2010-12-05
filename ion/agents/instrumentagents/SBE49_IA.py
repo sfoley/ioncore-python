@@ -14,9 +14,8 @@ from ion.agents.instrumentagents import instrument_agent as IA
 from ion.agents.instrumentagents.instrument_agent import InstrumentAgent
 
 from ion.core.process.process import ProcessFactory, ProcessDesc
-from ion.resources.dm_resource_descriptions import PubSubTopicResource, PublisherResource
-
-# Gotta have this AFTER the "static" variables above
+# Gotta have this AFTER next onethe "static" variables above
+from ion.resources.dm_resource_descriptions import PubSubTopicResource
 from ion.agents.instrumentagents.SBE49_driver import SBE49InstrumentDriverClient
 
 class SBE49InstrumentAgent(InstrumentAgent):

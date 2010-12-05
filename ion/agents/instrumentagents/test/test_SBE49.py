@@ -14,24 +14,14 @@ from twisted.internet import defer
 from ion.test.iontest import IonTestCase
 
 from ion.agents.instrumentagents.SBE49_driver import SBE49InstrumentDriverClient
-from ion.agents.instrumentagents.SBE49_driver import SBE49InstrumentDriver
 from ion.agents.instrumentagents.simulators.sim_SBE49 import Simulator
-from ion.core import bootstrap
 
-from ion.core.messaging.receiver import Receiver
-from ion.core.process.process import Process, ProcessDesc
 from ion.services.dm.distribution.pubsub_service import DataPubsubClient
 
-from ion.services.dm.distribution import base_consumer
-from ion.services.dm.distribution.consumers import forwarding_consumer
-from ion.services.dm.distribution.consumers import logging_consumer
-from ion.services.dm.distribution.consumers import example_consumer
 
 import ion.util.procutils as pu
-from ion.data import dataobject
-from ion.resources.dm_resource_descriptions import Publication, PublisherResource, PubSubTopicResource, SubscriptionResource
+from ion.resources.dm_resource_descriptions import PubSubTopicResource, SubscriptionResource
 
-from twisted.trial import unittest
 
 
 class TestSBE49(IonTestCase):
@@ -74,7 +64,7 @@ class TestSBE49(IonTestCase):
 
     @defer.inlineCallbacks
     def test_initialize(self):
-        result = yield self.driver_client.initialize('some arg')
+        yield self.driver_client.initialize('some arg')
         log.debug('TADA!')
 
     @defer.inlineCallbacks
@@ -89,10 +79,10 @@ class TestSBE49(IonTestCase):
     @defer.inlineCallbacks
     def test_fetch_set(self):
         params = {'outputformat':'2'}
-        result = yield self.driver_client.set_params(params)
+        yield self.driver_client.set_params(params)
 
         params = {'baudrate':'19200'}
-        result = yield self.driver_client.set_params(params)
+        yield self.driver_client.set_params(params)
 
         """
         params = {'baudrate':'19200', 'outputsal':'N'}
@@ -112,7 +102,7 @@ class TestSBE49(IonTestCase):
         yield pu.asleep(4)
         #result = yield self.driver_client.execute(cmd2)
 
-        result = yield self.driver_client.disconnect(['some arg'])
+        yield self.driver_client.disconnect(['some arg'])
 
 
     @defer.inlineCallbacks
@@ -120,7 +110,7 @@ class TestSBE49(IonTestCase):
         """
         Test the execute command to the Instrument Driver
         """
-        result = yield self.driver_client.initialize('some arg')
+        yield self.driver_client.initialize('some arg')
 
         dpsc = DataPubsubClient(self.sup)
 
@@ -141,26 +131,26 @@ class TestSBE49(IonTestCase):
 
         #config_vals = {'ipaddr':'137.110.112.119', 'ipport':'4001'}
         config_vals = {'ipaddr':'127.0.0.1', 'ipport':self.SimulatorPort}
-        result = yield self.driver_client.configure_driver(config_vals)
+        yield self.driver_client.configure_driver(config_vals)
 
         cmd1 = [['ds', 'now']]
         #cmd1 = [['start', 'now']]
         #cmd2 = [['stop', 'now']]
         #cmd2 = [['pumpoff', '3600', '1']]
         yield pu.asleep(5)
-        result = yield self.driver_client.execute(cmd1)
+        yield self.driver_client.execute(cmd1)
         # DHE: wait a while...
         yield pu.asleep(5)
         #result = yield self.driver_client.execute(cmd2)
 
 
         # DHE: disconnecting; a connect would probably be good.
-        result = yield self.driver_client.disconnect(['some arg'])
+        yield self.driver_client.disconnect(['some arg'])
 
 
     @defer.inlineCallbacks
     def test_sample(self):
-        result = yield self.driver_client.initialize('some arg')
+        yield self.driver_client.initialize('some arg')
 
         dpsc = DataPubsubClient(self.sup)
         topicname = 'SBE49 Topic'
@@ -189,9 +179,9 @@ class TestSBE49(IonTestCase):
         yield self.driver_client.configure_driver(params)
 
         cmd1 = [['ds', 'now']]
-        result = yield self.driver_client.execute(cmd1)
+        yield self.driver_client.execute(cmd1)
 
         yield pu.asleep(1)
 
-        result = yield self.driver_client.disconnect(['some arg'])
+        yield self.driver_client.disconnect(['some arg'])
 

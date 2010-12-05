@@ -230,6 +230,7 @@ class InstrumentAgent(ResourceAgent):
     state_topics = None
 
     def plc_init(self):
+        ResourceAgent.plc_init(self)
         self.pubsub_client = DataPubsubClient(proc=self)
         
     @defer.inlineCallbacks
@@ -427,7 +428,7 @@ class InstrumentAgent(ResourceAgent):
         """
         assert(isinstance(content, tuple)), "Bad IA op_execute_instrument type"
         try:
-            result = yield self.driver_client.execute(content)
+            yield self.driver_client.execute(content)
             yield self.reply_ok(msg)
         except ReceivedError, re:
             yield self.reply_err(msg, "Failure, response is: %s"
@@ -463,16 +464,16 @@ class InstrumentAgent(ResourceAgent):
                   headers["sender-name"], self.child_procs, content)
         if (self._is_child_process(headers["sender-name"])):
             if (content["Type"] == publish_msg_type["Data"]):
-                result = yield self.pubsub_client.publish(self,
+                yield self.pubsub_client.publish(self,
                             self.output_topics[content["Transducer"]].reference(),
                             content["Value"])
             elif ((content["Type"] == publish_msg_type["Error"])
                 or (content["Value"] == "ConfigChange")):
-                result = yield self.pubsub_client.publish(self,
+                yield self.pubsub_client.publish(self,
                             self.event_topics[content["Transducer"]].reference(),
                             content["Value"])
             elif (content["Type"] == publish_msg_type["StateChange"]):
-                result = yield self.pubsub_client.publish(self,
+                yield self.pubsub_client.publish(self,
                             self.state_topics[content["Transducer"]].reference(),
                             content["Value"])
         else:
@@ -499,10 +500,10 @@ class InstrumentAgent(ResourceAgent):
         if (type == publish_msg_type["Error"]) or \
             (type == publish_msg_type["Event"]) or \
             (type == publish_msg_type["ConfigChange"]):
-                result = yield self.pubsub_client.publish(self.sup,
+                yield self.pubsub_client.publish(self.sup,
                             self.event_topics["Agent"].reference(),value)
         if (type == publish_msg_type["StateChange"]):
-                result = yield self.pubsub_client.publish(self.sup,
+                yield self.pubsub_client.publish(self.sup,
                             self.state_topics["Agent"].reference(),value)
     
     def _is_child_process(self, name):
