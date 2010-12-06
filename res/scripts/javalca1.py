@@ -57,11 +57,27 @@ def main():
 
     ir2 = InstrumentResource.create_new_resource()
     ir2.name = "Demo_CTD_2"
-    ir2.model = "SBE49"
-    ir2.serial_num = "12399"
+    ir2.model = "SBE49_sim"
+    ir2.serial_num = "23456"
     ir2.fw_version = "1.335"
     ir2.manufactorer = "SeaBird"
     ir2 = yield irc.register_instrument_instance(ir2)
+
+    ir3 = InstrumentResource.create_new_resource()
+    ir3.name = "Demo_ADCP_1"
+    ir3.model = "WHSentinelADCP"
+    ir3.serial_num = "34567"
+    ir3.fw_version = "1.0.2"
+    ir3.manufactorer = "Teledyne"
+    ir3 = yield irc.register_instrument_instance(ir3)
+    
+    ir4 = InstrumentResource.create_new_resource()
+    ir4.name = "Demo_ADCP_2"
+    ir4.model = "WHSentinelADCP_sim"
+    ir4.serial_num = "45678"
+    ir4.fw_version = "1.0.4"
+    ir4.manufactorer = "Teledyne"
+    ir4 = yield irc.register_instrument_instance(ir4)
 
     dprc = DataProductRegistryClient(proc=sup)
 

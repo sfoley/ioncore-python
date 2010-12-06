@@ -54,7 +54,7 @@ class SBE49InstrumentAgent(InstrumentAgent):
         self.event_topics["Agent"] = PubSubTopicResource.create("EventAgent" + self.instrument_id, "")
         self.state_topics["Agent"] = PubSubTopicResource.create("StateAgent" + self.instrument_id, "")
 
-        self.output_topics["Device"] = PubSubTopicResource.create("OutputDevice" + self.instrument_id, "")
+        self.output_topics["Device"] = PubSubTopicResource.create("OutputDevice", "")
         self.event_topics["Device"] = PubSubTopicResource.create("EventDevice" + self.instrument_id, "")
         self.state_topics["Device"] = PubSubTopicResource.create("StateDevice" + self.instrument_id, "")
 
@@ -123,6 +123,7 @@ class SBE49InstrumentAgent(InstrumentAgent):
         individual instrument commands
         """
         assert isinstance(content, tuple), "SBE49 executing bad command list"
+        log.debug("op_execute_instrument: command = %s" %content)
         new_content = list(content)
         # Can probably be made more memory efficient with a generator
         if (content[0] in const.command_substitutions):

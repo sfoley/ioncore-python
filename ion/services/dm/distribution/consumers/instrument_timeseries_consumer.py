@@ -122,17 +122,24 @@ class InstrumentTimeseriesConsumer(base_consumer.BaseConsumer):
 
     def ondata(self, data, notification, timestamp, queue='', max_points=15, **kwargs):
 
-        vals = data.split(',')
+        if data.find('#') != -1:
+            data = data.lstrip('#')
+            vals = data.split(',')
+            description = [('v1','number', 'value1'),
+                           ('v2','number', 'value2'),
+                           ('v3','number', 'value3')
+                          ]
+            self.pdata.append([float(vals[0]),float(vals[1]),float(vals[2])])
+        else:
+            vals = data.split(',')
+            description = [('v1','number', 'value1'),
+                           ('v2','number', 'value2'),
+                           ('v3','number', 'value3'),
+                           ('v4','number', 'value4')
+                          ]
+            self.pdata.append([float(vals[0]),float(vals[1]),float(vals[2]),float(vals[3])])
+
         log.debug('VALS: %s'  % vals)
-
-        description = [('v1','number', 'value1'),
-                        ('v2','number', 'value2'),
-                        ('v3','number', 'value3'),
-                        ('v4','number', 'value4')
-                       ]
-
-        self.pdata.append([float(vals[0]),float(vals[1]),float(vals[2]),float(vals[3])])
-
         dlen = len(self.pdata)
         if dlen > max_points:
             self.pdata = self.pdata[dlen-max_points : ]

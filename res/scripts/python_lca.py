@@ -57,7 +57,7 @@ def start():
     dpsc = pubsub_service.DataPubsubClient(proc=sup)
 
     subscription = SubscriptionResource()
-    subscription.topic1 = PubSubTopicResource.create('Inst/RAW','')
+    subscription.topic1 = PubSubTopicResource.create('OutputDevice','')
 
     # Use the example consumer to create events... graph the number of events
     '''
