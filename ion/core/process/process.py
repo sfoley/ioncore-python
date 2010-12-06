@@ -158,11 +158,9 @@ class Process(BasicLifecycleObject):
 
         # Create queue only for process receiver
         yield self.receiver.initialize()
-
         # Create queue and consumer for backend receiver
         yield self.backend_receiver.initialize()
         yield self.backend_receiver.activate()
-
         # Callback to subclasses
         try:
             yield defer.maybeDeferred(self.plc_init)
@@ -377,7 +375,6 @@ class Process(BasicLifecycleObject):
 
         # Regular message handling in expected state
         pu.log_message(msg)
-
         if "op" in payload:
             op = payload['op']
             content = payload.get('content','')
