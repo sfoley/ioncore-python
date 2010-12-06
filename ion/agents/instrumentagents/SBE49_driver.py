@@ -190,6 +190,9 @@ class SBE49InstrumentDriver(InstrumentDriver):
         elif caller.tEvt['sType'] == "eventCommandReceived":
             log.info("stateBase state: ignoring event %s;" %(caller.tEvt['sType']))
             return 0
+        elif caller.tEvt['sType'] == "eventInstrumentAsleep":
+            log.info("stateBase state: ignoring event %s;" %(caller.tEvt['sType']))
+            return 0
         else:
             log.error("stateBase state: unhandled event %s;" %(caller.tEvt['sType']))
             return 0
