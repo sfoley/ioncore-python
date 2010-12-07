@@ -647,6 +647,8 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
             Value = (self.buadRateTable[self.__instrument_parameters["baudrate"]]*100) + \
                     (self.__instrument_parameters["parity"]*10) + \
                     (self.__instrument_parameters["stopBits"])
+        else:
+            Value = 0
         Command = self.ParmCommands[param] + str(Value)
         return Command
 
@@ -676,7 +678,7 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
                 break;
             else:
                 log.info("setting param %s to %s" %(str(param), str(content[param])))
-                self.__instrument_parameters[param] = content[param]
+                self.__instrument_parameters[param] = int(content[param])
                 if param in self.ParmCommands:
                     command = self.constructCommand(param)
                     log.info("command for setting param %s is %s" %(str(param), command))
@@ -688,7 +690,7 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
                     self.hsm.sendEvent('eventCommandReceived')
                 else:
                     error_msg = str(param) + " is not a settable parameter"
-                    #log.error("%s is not a settable parameter" % str(param))
+                    log.error("%s is not a settable parameter" % str(param))
                     log.error(error_msg)
                     
         if error_msg:

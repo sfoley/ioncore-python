@@ -168,6 +168,80 @@ class InstrumentManagementService(ServiceProcess):
         yield self.reply_ok(msg, cmd_result)
 
     @defer.inlineCallbacks
+    def op_set_instrument_parameter(self, content, headers, msg):
+        """
+        Service operation: .
+        """
+        
+        log.info("set_instrument_parameter: content=%s" %content)
+
+        # Step 1: Extract the arguments from the UI generated message content
+        commandInput = content['commandInput']
+
+        if 'instrumentID' in commandInput:
+            inst_id = str(commandInput['instrumentID'])
+        else:
+            raise ValueError("Input for instrumentID not present")
+
+        if 'parameterName' in commandInput:
+            ParameterName = str(commandInput['parameterName'])
+        else:
+            raise ValueError("Input for parameterName not present")
+
+        if 'parameterValue' in commandInput:
+            ParameterValue = str(commandInput['parameterValue'])
+        else:
+            raise ValueError("Input for parameterValue not present")
+
+        agent_pid = yield self.get_agent_pid_for_instrument(inst_id)
+        if not agent_pid:
+            raise StandardError("No agent found for instrument "+str(inst_id))
+
+        iaclient = InstrumentAgentClient(proc=self, target=agent_pid)
+
+        Params = dict([(ParameterName, ParameterValue),])
+        values = yield iaclient.set_to_instrument(Params)
+        resvalues = {}
+        if values:
+            resvalues = values
+
+        yield self.reply_ok(msg, resvalues)
+
+    @defer.inlineCallbacks
+    def op_get_instrument_parameter(self, content, headers, msg):
+        """
+        Service operation: .
+        """
+        
+        log.info("get_instrument_parameter: content=%s" %content)
+
+        # Step 1: Extract the arguments from the UI generated message content
+        commandInput = content['commandInput']
+
+        if 'instrumentID' in commandInput:
+            inst_id = str(commandInput['instrumentID'])
+        else:
+            raise ValueError("Input for instrumentID not present")
+
+        if 'parameterName' in commandInput:
+            ParameterName = str(commandInput['parameterName'])
+        else:
+            raise ValueError("Input for parameterName not present")
+
+        agent_pid = yield self.get_agent_pid_for_instrument(inst_id)
+        if not agent_pid:
+            raise StandardError("No agent found for instrument "+str(inst_id))
+
+        iaclient = InstrumentAgentClient(proc=self, target=agent_pid)
+
+        values = yield iaclient.get_from_instrument([ParameterName])
+        resvalues = {}
+        if values:
+            resvalues = values
+
+        yield self.reply_ok(msg, resvalues)
+
+    @defer.inlineCallbacks
     def op_get_instrument_state(self, content, headers, msg):
         """
         Service operation: .
