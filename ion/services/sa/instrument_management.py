@@ -10,7 +10,6 @@ import ion.util.ionlog
 log = ion.util.ionlog.getLogger(__name__)
 from twisted.internet import defer
 
-from ion.agents.instrumentagents.simulators.sim_SBE49 import Simulator
 from ion.agents.instrumentagents.instrument_agent import InstrumentAgentClient
 from ion.core.process.process import ProcessFactory, ProcessDesc
 from ion.data.dataobject import DataObject, ResourceReference, LCStates
@@ -142,6 +141,7 @@ class InstrumentManagementService(ServiceProcess):
         command.append(command_op)
 
         arg_idx = 0
+        """
         while True:
             argname = 'cmdArg'+str(arg_idx)
             arg_idx += 1
@@ -149,6 +149,7 @@ class InstrumentManagementService(ServiceProcess):
                 command.append(str(commandInput[argname]))
             else:
                 break
+        """
 
         # Step 2: Find the agent id for the given instrument id
         agent_pid  = yield self.get_agent_pid_for_instrument(inst_id)
@@ -158,11 +159,87 @@ class InstrumentManagementService(ServiceProcess):
 
         # Step 3: Interact with the agent to execute the command
         iaclient = InstrumentAgentClient(proc=self, target=agent_pid)
-        commandlist = [command,]
+        #commandlist = [command,]
+        commandlist = command
         log.info("Sending command to IA: "+str(commandlist))
         cmd_result = yield iaclient.execute_instrument(commandlist)
+        log.info("rcvd response from IA: "+str(cmd_result))
 
         yield self.reply_ok(msg, cmd_result)
+
+    @defer.inlineCallbacks
+    def op_set_instrument_parameter(self, content, headers, msg):
+        """
+        Service operation: .
+        """
+        
+        log.info("set_instrument_parameter: content=%s" %content)
+
+        # Step 1: Extract the arguments from the UI generated message content
+        commandInput = content['commandInput']
+
+        if 'instrumentID' in commandInput:
+            inst_id = str(commandInput['instrumentID'])
+        else:
+            raise ValueError("Input for instrumentID not present")
+
+        if 'parameterName' in commandInput:
+            ParameterName = str(commandInput['parameterName'])
+        else:
+            raise ValueError("Input for parameterName not present")
+
+        if 'parameterValue' in commandInput:
+            ParameterValue = str(commandInput['parameterValue'])
+        else:
+            raise ValueError("Input for parameterValue not present")
+
+        agent_pid = yield self.get_agent_pid_for_instrument(inst_id)
+        if not agent_pid:
+            raise StandardError("No agent found for instrument "+str(inst_id))
+
+        iaclient = InstrumentAgentClient(proc=self, target=agent_pid)
+
+        Params = dict([(ParameterName, ParameterValue),])
+        values = yield iaclient.set_to_instrument(Params)
+        resvalues = {}
+        if values:
+            resvalues = values
+
+        yield self.reply_ok(msg, resvalues)
+
+    @defer.inlineCallbacks
+    def op_get_instrument_parameter(self, content, headers, msg):
+        """
+        Service operation: .
+        """
+        
+        log.info("get_instrument_parameter: content=%s" %content)
+
+        # Step 1: Extract the arguments from the UI generated message content
+        commandInput = content['commandInput']
+
+        if 'instrumentID' in commandInput:
+            inst_id = str(commandInput['instrumentID'])
+        else:
+            raise ValueError("Input for instrumentID not present")
+
+        if 'parameterName' in commandInput:
+            ParameterName = str(commandInput['parameterName'])
+        else:
+            raise ValueError("Input for parameterName not present")
+
+        agent_pid = yield self.get_agent_pid_for_instrument(inst_id)
+        if not agent_pid:
+            raise StandardError("No agent found for instrument "+str(inst_id))
+
+        iaclient = InstrumentAgentClient(proc=self, target=agent_pid)
+
+        values = yield iaclient.get_from_instrument([ParameterName])
+        resvalues = {}
+        if values:
+            resvalues = values
+
+        yield self.reply_ok(msg, resvalues)
 
     @defer.inlineCallbacks
     def op_get_instrument_state(self, content, headers, msg):
@@ -204,9 +281,14 @@ class InstrumentManagementService(ServiceProcess):
         Service operation: Starts an instrument agent for a type of
         instrument.
         """
+        
+        InstrumentsSupported = ['SBE49', 'SBE49_sim', 'WHSentinelADCP', 'WHSentinelADCP_sim']
 
-        SBE37_IPADDR = '137.110.112.119'
-        SBE37_IPPORT = 4001
+        INST_IPADDR = '137.110.112.119'
+        SIM_IPADDR = 'localhost'
+        SBE49_IPPORT = 4001
+        WHSENTINELADCP_IPPORT = 4002
+        WHSENTINELADCP_IPCMDPORT = 967
         
         if 'instrumentID' in content:
             inst_id = str(content['instrumentID'])
@@ -218,41 +300,58 @@ class InstrumentManagementService(ServiceProcess):
         else:
             raise ValueError("Input for model not present")
 
-        if model != 'SBE49':
-            raise ValueError("Only SBE49 supported!")
+        if model not in InstrumentsSupported:
+            raise ValueError("Only " + InstrumentsSupported + " supported!")
 
         agent_pid = yield self.get_agent_pid_for_instrument(inst_id)
         if agent_pid:
             raise StandardError("Agent already started for instrument "+str(inst_id))
 
-        simulator = Simulator(inst_id)
-        simPort = simulator.start()
-        if simPort <= 0:
-            raise StandardError("Simulator returned invalid port number.")
+        if model.find('_sim') != -1:
+            from ion.agents.instrumentagents.simulators.Simulator_constants import NO_PORT_NUMBER_FOUND
+            InstrumentName = model.partition('_')[0]
+            try:
+                exec ('from ion.agents.instrumentagents.simulators.sim_{0} import Simulator'.format(InstrumentName))
+            except:
+                print 'ERROR while trying to import Simulator from module sim_{0}'.format(InstrumentName)
+                return
+            simulator = Simulator(inst_id)
+            Ports = simulator.start()
+            if Ports[0] == NO_PORT_NUMBER_FOUND:
+                raise StandardError("Can't start simulator: no port available")
+            IpAddress = SIM_IPADDR
+            print 'started sim_%s simulator on %s:%s,%s' %(InstrumentName, IpAddress, Ports[0], Ports[1])
         else:
-            log.info("Simulator returned port: %d" %simPort)
-
+            IpAddress = INST_IPADDR
+            InstrumentName = model
+            if InstrumentName == 'SBE49':
+                Ports = [SBE49_IPPORT, 0]
+            elif InstrumentName == 'WHSentinelADCP':
+                Ports = [WHSENTINELADCP_IPPORT, WHSENTINELADCP_IPCMDPORT]
+            else:
+                raise StandardError("Unknown simulator name %s" %InstrumentName)
+                
         topicname = "Inst/RAW/"+inst_id
         topic = PubSubTopicResource.create(topicname,"")
 
         # Use the service to create a queue and register the topic
         topic = yield self.dpsc.define_topic(topic)
 
-        log.info("Starting agent with ipport: %d" %simulator.port)
+        log.info("Starting agent with ipaddr: %s, ipport: %d, ipportCmd: %d" %(IpAddress, Ports[0], Ports[1]))
 
         iagent_args = {}
         iagent_args['instrument-id'] = inst_id
         driver_args = {}
-        #driver_args['ipport'] = simulator.port
-        driver_args['ipaddr'] = SBE37_IPADDR
-        driver_args['ipport'] = SBE37_IPPORT
+        driver_args['ipaddr'] = IpAddress
+        driver_args['ipport'] = Ports[0]
+        driver_args['ipportCmd'] = Ports[1]
         driver_args['publish-to'] = topic.RegistryIdentity
         iagent_args['driver-args'] = driver_args
 
-        iapd = ProcessDesc(**{'name':'SBE49IA',
-                  'module':'ion.agents.instrumentagents.SBE49_IA',
-                  'class':'SBE49InstrumentAgent',
-                  'spawnargs':iagent_args})
+        iapd = ProcessDesc(**{'name':InstrumentName+'IA',
+                              'module':'ion.agents.instrumentagents.'+InstrumentName+'_IA',
+                              'class':InstrumentName+'InstrumentAgent',
+                              'spawnargs':iagent_args})
 
         iagent_id = yield self.spawn_child(iapd)
         iaclient = InstrumentAgentClient(proc=self, target=iagent_id)

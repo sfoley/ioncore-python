@@ -42,3 +42,9 @@ ion/agents/instrumentagents copy/test/test_WHSentinelADCP.py
 ion/agents/instrumentagents copy/test/test_instrument.py
 
 .gitignore
+
+ps1
+
+ps2
+
+.gitignore
