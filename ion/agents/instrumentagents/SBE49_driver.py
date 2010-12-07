@@ -36,7 +36,9 @@ from ion.core.process.process import ProcessFactory
 # DHE: need to do something like: instCmdTranslator = SBE49_InstCommandXlator()
 #
 
-RESPONSE_TIMEOUT = 5   # 5 second timeout for response from instrument
+RESPONSE_TIMEOUT = 5         # 5 second timeout for response from instrument
+WAKEUP_RESPONSE_TIMEOUT = 2  # 1 second timeout for wakeup response
+MAX_WAKEUP_COUNT = 25        # number of times to send wakeup burst
 
 class SBE49_instCommandXlator():
     commands = {
@@ -89,6 +91,8 @@ class SBE49InstrumentDriver(InstrumentDriver):
 
         self.proto = None
         self.TimeOut = None
+        self.WakeupTimeOut = None
+        self.wakeupCount = 0
     
         self.instCmdXlator = SBE49_instCommandXlator()
         
@@ -272,13 +276,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
         elif caller.tEvt['sType'] == "exit":
             return 0
         elif caller.tEvt['sType'] == "eventConnectionComplete":
-            #
-            # DHE: Don't transition to the stateConnected state
-            # until we get the prompt.
-            #
-            #self.sendCmd(instrument_prompts.PROMPT_INST)
             self.sendWakeup()
-            # move to stateConnected
             caller.stateTran(self.stateConnected)
             return 0
         elif caller.tEvt['sType'] == "eventDisconnectReceived":
@@ -287,19 +285,11 @@ class SBE49InstrumentDriver(InstrumentDriver):
             #
             caller.stateTran(self.stateDisconnecting)
             return 0
-        # Don't think I should get this here...candidate for deletion
-        elif caller.tEvt['sType'] == "eventPromptReceived":
-            caller.stateTran(self.stateConnected)
-            return 0
         return caller.tEvt['sType']
 
     def stateConnected(self, caller):
         log.info("stateConnected-%s;" %(caller.tEvt['sType']))
         if caller.tEvt['sType'] == "init":
-            """
-            @todo Need a queue of commands from which to pull commands
-            """
-            # Should we send the prompt here?
             return 0
         elif caller.tEvt['sType'] == "entry":
             return 0
@@ -308,26 +298,22 @@ class SBE49InstrumentDriver(InstrumentDriver):
         elif caller.tEvt['sType'] == "eventCommandReceived":
             # We got a command from the agent; need to get the prompt
             # before sending
-            self.sendCmd(instrument_prompts.PROMPT_INST)
-            #self.sendWakeup()
+            self.sendWakeup()
             # transition to sub-state 'stateWakingInstrument'
-            #caller.stateTran(self.stateWakingInstrument)
+            caller.stateTran(self.stateWakingInstrument)
             return 0
         elif caller.tEvt['sType'] == "eventDataReceived":
             # send this up to the agent to publish.
             data = self.getPublishLine()            
             log.debug("stateConnected() Calling publish.")
             self.publish(publish_msg_type["Data"], "Device", data)
-            if 'S>' in data:
-                log.debug("OH NO OH NO OH NO!!  Received Prompt")
-                caller.stateTran(self.statePrompted)
-            #else:
-            #    log.debug("Did not receive prompt")
             return 0
         elif caller.tEvt['sType'] == "eventPromptReceived":
             #
             # Transition to the statePrompted state
             #
+            self.wakeupCount = 0
+            self.__terminateWakeupTimer()
             caller.stateTran(self.statePrompted)
             return 0
         elif caller.tEvt['sType'] == "eventDisconnectReceived":
@@ -336,8 +322,8 @@ class SBE49InstrumentDriver(InstrumentDriver):
             #
             caller.stateTran(self.stateDisconnecting)
             return 0
-        elif caller.tEvt['sType'] == "eventResponseTimeout":
-            self.ProcessWakeupResponseTimeout()
+        elif caller.tEvt['sType'] == "eventWakeupTimeout":
+            self.ProcessWakeupTimeout()
             return 0
         return caller.tEvt['sType']
 
@@ -352,8 +338,16 @@ class SBE49InstrumentDriver(InstrumentDriver):
             return 0
         elif caller.tEvt['sType'] == "exit":
             return 0
+        elif caller.tEvt['sType'] == "eventDataReceived":
+            #self.wakeupCount = 0
+            return 0
         elif caller.tEvt['sType'] == "eventPromptReceived":
+            self.wakeupCount = 0
+            self.__terminateWakeupTimer()
             caller.stateTran(self.statePrompted)
+            return 0
+        elif caller.tEvt['sType'] == "eventWakeupTimeout":
+            self.ProcessWakeupTimeout()
             return 0
         return caller.tEvt['sType']
 
@@ -392,6 +386,8 @@ class SBE49InstrumentDriver(InstrumentDriver):
             #    caller.stateTran(self.stateConnected)
             return 0
         elif caller.tEvt['sType'] == "eventPromptReceived":
+            self.wakeupCount = 0
+            self.__terminateWakeupTimer()
             return 0
         elif caller.tEvt['sType'] == "eventDisconnectReceived":
             #
@@ -440,11 +436,13 @@ class SBE49InstrumentDriver(InstrumentDriver):
     @defer.inlineCallbacks
     def plc_terminate(self):
         self.__terminateTimer()
+        self.__terminateWakeupTimer()
             
         yield self.op_disconnect(None, None, None)
 
     def __cleanUpConnection(self):
         self.__terminateTimer()
+        self.__terminateWakeupTimer()
             
     def __terminateTimer(self):
         if self.TimeOut != None:
@@ -452,6 +450,11 @@ class SBE49InstrumentDriver(InstrumentDriver):
             self.TimeOut.cancel()
             self.TimeOut = None
         
+    def __terminateWakeupTimer(self):
+        if self.WakeupTimeOut != None:
+            log.debug("Wakeup Timer active: cancelling")
+            self.WakeupTimeOut.cancel()
+            self.WakeupTimeOut = None
 
     def isConnected(self):
         return self.connected
@@ -520,6 +523,12 @@ class SBE49InstrumentDriver(InstrumentDriver):
             self.TimeOut = None
             self.hsm.sendEvent('eventResponseTimeout');
             
+    def WakeupTimeoutCallback(self):
+        log.info("TimeoutCallback()")
+        if self.WakeupTimeOut != None:
+            self.WakeupTimeOut = None
+            self.hsm.sendEvent('eventWakeupTimeout');
+            
     def ProcessCmdResponseTimeout(self):
         if len(self.cmdQueue) > 0:
             log.error("No response from instrument for cammand \'%s\'" % self.cmdQueue[0])
@@ -527,26 +536,36 @@ class SBE49InstrumentDriver(InstrumentDriver):
                          "No response from instrument for cammand \'%s\'" % self.cmdQueue[0])
             self.cmdQueue = []
 
-    def ProcessWakeupResponseTimeout(self):
-        if len(self.cmdQueue) > 0:
+    def ProcessWakeupTimeout(self):
+        self.wakeupCount += 1
+        if self.wakeupCount >= MAX_WAKEUP_COUNT:
+            self.wakeupCount = 0
             log.error("No response from instrument for wakeup")
             self.publish(publish_msg_type["Error"], "Device",
                          "No response from instrument for wakeup")
-            self.cmdQueue = []
+            if len(self.cmdQueue) > 0:
+               self.cmdQueue = []
+        else:
+            self.sendWakeup()
       
     def sendCmd(self, cmd):
         log.debug("Sending Command: %s" %cmd)
         self.instrument.transport.write(cmd)
-        # TODO: What if self.TimeOut exists and is running?  
+        self.__terminateTimer()
         self.TimeOut = Timer(RESPONSE_TIMEOUT, self.TimeoutCallback)
         self.TimeOut.start()
         
     def sendWakeup(self):
         log.debug("Sending Wakeup")
-        self.instrument.transport.write(instrument_prompts.PROMPT_INST)
-        # TODO: What if self.TimeOut exists and is running?  
-        #self.TimeOut = Timer(RESPONSE_TIMEOUT, self.TimeoutCallback)
-        #self.TimeOut.start()
+        self.instrument.transport.write(instrument_prompts.PROMPT_INST_BURST)
+        #self.instrument.transport.write("\n\n\n\n\n")
+        #
+        # This is supposed to be bad, but it's the only way I can make it work right now.
+        #
+        self.instrument.transport.doWrite()
+        self.__terminateWakeupTimer()
+        self.WakeupTimeOut = Timer(WAKEUP_RESPONSE_TIMEOUT, self.WakeupTimeoutCallback)
+        self.WakeupTimeOut.start()
         
     @defer.inlineCallbacks
     def getConnected(self):
@@ -582,7 +601,20 @@ class SBE49InstrumentDriver(InstrumentDriver):
         log.debug("gotConnected.")
 
         self.instrument = instrument
+        
+        if self.instrument.transport.getTcpNoDelay():
+            log.info("TCP NODELAY is TRUE")
+        else:            
+            log.info("TCP NODELAY is TRUE")
+                
+        log.info("Setting TCP NODELAY")
 
+        self.instrument.transport.setTcpNoDelay(1)
+        if self.instrument.transport.getTcpNoDelay():
+            log.info("TCP NODELAY is TRUE")
+        else:            
+            log.info("TCP NODELAY is TRUE")
+                
         #
         # Don't need this anymore
         #
@@ -614,10 +646,7 @@ class SBE49InstrumentDriver(InstrumentDriver):
         @retval none
         """
         
-        if self.TimeOut != None:
-            log.debug("gotData: cancelling timer.")
-            self.TimeOut.cancel()
-            self.TimeOut = None
+        self.__terminateTimer()
 
         if dataFrag == instrument_prompts.INST_GONE_TO_SLEEP:
             log.debug("gotData(): Instrument is now asleep.")

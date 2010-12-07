@@ -19,6 +19,7 @@ class InstrumentHsm(Hsm):
         'eventDisconnectReceived',
         'eventPromptReceived',
         'eventResponseTimeout',
+        'eventWakeupTimeout',
         'eventInstrumentAsleep'
     ]
 
