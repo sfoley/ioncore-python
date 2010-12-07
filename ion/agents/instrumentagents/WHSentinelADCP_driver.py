@@ -14,13 +14,8 @@ from instrument_hsm import InstrumentHsm
 from ion.agents.instrumentagents.instrument_connection import InstrumentConnection
 from twisted.internet.protocol import ClientCreator
 
-from ion.core.process.process import Process
-from ion.data.dataobject import ResourceReference
-from ion.resources.dm_resource_descriptions import Publication, PublisherResource, PubSubTopicResource, SubscriptionResource, DAPMessageObject
-from ion.services.dm.distribution.pubsub_service import DataPubsubClient
-
-from ion.agents.instrumentagents.instrument_agent import InstrumentDriver, InstrumentAgentClient
-from ion.agents.instrumentagents.instrument_agent import InstrumentDriverClient
+from ion.agents.instrumentagents.instrument_agent import InstrumentDriver
+from ion.agents.instrumentagents.instrument_agent import InstrumentDriverClient, publish_msg_type
 from ion.agents.instrumentagents.WHSentinelADCP_constants import instrument_commands
 from ion.agents.instrumentagents.WHSentinelADCP_constants import instrument_prompts
 
@@ -91,10 +86,9 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
         self.instrument = None
         self.CmdInstrument = None
         self.command = None
-        self.setTopicDefined(False)
-        self.publish_to = None
         self.dataQueue = ""
         self.cmdQueue = deque([])
+        self.publishLine = ""
         self.proto = None
         self.TimeOut = None
         NoResponseIsError = False
@@ -331,7 +325,6 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
         return caller.tEvt['sType']
 
 
-    @defer.inlineCallbacks
     def plc_init(self):
         log.debug("WHSentinelADCPInstrumentDriver.plc_init: spawn_args: %s" %str(self.spawn_args))
         self.instrument_id = self.spawn_args.get('instrument-id', '123')
@@ -342,16 +335,15 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
         log.debug("!!!!!!!!!!!!!!!!!! Calling onStart!")
         self.hsm.onStart(self.stateUnconfigured)
 
-        yield self._configure_driver(self.spawn_args)
+        self._configure_driver(self.spawn_args)
 
-        log.info("INIT DRIVER for instrument ID=%s, ipaddr=%s, port=%s, publish-to=%s" % (
-            self.instrument_id, self.instrument_ipaddr, self.instrument_ipport, self.publish_to))
+        log.info("INIT DRIVER for instrument ID=%s, ipaddr=%s, port=%s, portCmd=%s" % (
+            self.instrument_id, self.instrument_ipaddr, self.instrument_ipport, self.instrument_ipportCmd))
 
-        self.iaclient = InstrumentAgentClient(proc=self, target=self.proc_supid)
+        #self.iaclient = InstrumentAgentClient(proc=self, target=self.proc_supid)
 
         log.debug("Instrument driver initialized")
 
-        log.debug("!!!!!!!!!!! Sending configured event");
         self.hsm.sendEvent('eventConfigured');
 
 
@@ -420,7 +412,8 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
     def ProcessCmdResponseTimeout(self):
         if len(self.cmdQueue) > 0:     
             log.error("No response from instrument for cammand \'%s\'" % self.cmdQueue[0])
-            self.publish("No response from instrument for cammand \'%s\'".format(self.cmdQueue[0]), self.publish_to)
+            self.publish(publish_msg_type["Error"], "Device",
+                         "No response from instrument for cammand \'%s\'".format(self.cmdQueue[0]))
             self.cmdQueue = []
         else:
             log.error("No cammand in command queue after command-response-timeout")
@@ -429,7 +422,8 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
 
     def ProcessWakeupResponseTimeout(self):
         log.error("No response from instrument for wakeup")
-        self.publish("No response from instrument for wakeup", self.publish_to)
+        self.publish(publish_msg_type["Error"], "Device",
+                     "No response from instrument for wakeup")
         self.cmdQueue = []
       
 
@@ -498,7 +492,7 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
                         self.sendCmd(self.PeekCmd())
             # send this up to the agent to publish.
             log.info("Calling publish with \"%s\"" %partition[0])
-            self.publish(partition[0], self.publish_to)
+            self.publish(publish_msg_type["Data"], "Device", partition[0])
           
         
     def gotCmdConnected(self, instrument):
@@ -604,25 +598,18 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
         
 
     @defer.inlineCallbacks
-    def publish(self, data, topic):
+    def publish(self, topic, transducer, data):
         """
-        @brief Publish the given data to the given topic.
-        @param data The data to publish
-        @param topic The topic to which to publish.  Currently this is not the
-        topic as defined by pubsub.
-        @retval none
+        Collect some publishable information to hand back to the agent for
+        publishing
+        @param topic The type of topic that is to be published to. Should be one
+        of "StateChange", "ConfigChange", "Error", or "Data".
+        @param transducer The transducer name to indicate which queue to publish on
+        @param data The message to be published
         """
-        log.debug("publish()")
-        if self.isTopicDefined() == True:
-
-            # Create and send a data message
-            result = yield self.dpsc.publish(self, self.topic.reference(), data)
-            if result:
-                log.info('Published Message')
-            else:
-                log.info('Failed to Published Message')
-        else:
-            log.info("NOT READY TO PUBLISH")
+        log.debug("WHSentinelADCPDriver is publishing to the agent value: %s", data)
+        # send it to our supervisor
+        yield self.send(self.proc_supid, "publish", {"Type":topic, "Transducer":transducer, "Value":data})
 
 
     @defer.inlineCallbacks
@@ -719,37 +706,38 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
         """
         assert(isinstance(content, (tuple, list)))
 
-        log.info("op_execute content: %s" %str(content))
+        log.info("op_execute content: %s" %content)
 
         if ((content == ()) or (content == [])):
             yield self.reply_err(msg, "Empty command")
             return
+        
         agentCommands = []
-        for command_set in content:
-            command = command_set[0]
-            value = command_set[1]
-            if command not in instrument_commands:
-                log.error("Invalid Command: %s" %command)
-                yield self.reply_err(msg, "Invalid Command")
+        command = content[0] 
+        #value = content[1]
+        value = ''
+        if command not in instrument_commands:
+            log.error("Invalid Command: %s" %command)
+            yield self.reply_err(msg, "Invalid Command")
+        else:
+            log.debug("op_execute translating command: %s" % command)
+            instCommand = self.instCmdXlator.translate(command)
+            if isinstance(instCommand, list):
+                for instCmd in instCommand:
+                    log.info("op_execute queueing command: %s" % instCmd)
+                    self.enqueueCmd(instCmd)
             else:
-                log.debug("op_execute translating command: %s" % command)
-                instCommand = self.instCmdXlator.translate(command)
-                if isinstance(instCommand, list):
-                    for instCmd in instCommand:
-                        log.info("op_execute queueing command: %s" % instCmd)
-                        self.enqueueCmd(instCmd)
-                else:
-                    instCommand += value
-                    log.info("op_execute queueing command: %s" % instCommand)
-                    self.enqueueCmd(instCommand)
-                # respond to command
-                agentCommands.append(command)
-                yield self.reply_ok(msg, agentCommands)
-                """
-                Send the command received event.  This should kick off the
-                appropriate sequence of events to get the command sent.
-                """
-                self.hsm.sendEvent('eventCommandReceived')
+                instCommand += value
+                log.info("op_execute queueing command: %s" % instCommand)
+                self.enqueueCmd(instCommand)
+            # respond to command
+            agentCommands.append(command)
+            yield self.reply_ok(msg, agentCommands)
+            """
+            Send the command received event.  This should kick off the
+            appropriate sequence of events to get the command sent.
+            """
+            self.hsm.sendEvent('eventCommandReceived')
 
 
 
@@ -785,7 +773,6 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
         yield self.reply_ok(msg, content)
 
 
-    @defer.inlineCallbacks
     def _configure_driver(self, params):
         """
         Configures driver params either on startup or on command
@@ -807,17 +794,6 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
         else:
             log.debug("%%%%%%%% No ipportCmd in params: defaulting to: %s" %self.instrument_ipportCmd)
             
-        if 'publish-to' in params:
-            self.publish_to = params['publish-to']
-            log.debug("Configured publish-to=" + self.publish_to)
-            self.setTopicDefined(True)
-            self.dpsc = DataPubsubClient(proc=self)
-            self.topic = ResourceReference(RegistryIdentity=self.publish_to, RegistryBranch='master')
-            self.publisher = PublisherResource.create('Test Publisher', self, self.topic, 'DataObject')
-            self.publisher = yield self.dpsc.define_publisher(self.publisher)
-        else:
-            log.debug("%%%%%%%% No publish-to in params")
-
 
 class WHSentinelADCPInstrumentDriverClient(InstrumentDriverClient):
     """
