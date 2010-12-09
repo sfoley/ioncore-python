@@ -637,9 +637,21 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
         """
         assert(isinstance(content, (list, tuple)))
         result = {}
+        error_msg = None
         for param in content:
-            result[param] = self.__instrument_parameters[param]
-        yield self.reply_ok(msg, result)
+            if (param not in self.__instrument_parameters):
+                # Getting rid of this
+                #yield self.reply_err(msg, "Could not set %s" % param)
+                error_msg = "Could not set " + str(param)
+                log.error(error_msg)
+                # NEED TO BREAK OUT HERE: don't send multiple responses
+                break;
+            else:
+                result[param] = self.__instrument_parameters[param]
+        if error_msg:
+            yield self.reply_err(msg, error_msg)
+        else:            
+            yield self.reply_ok(msg, result)
 
 
     def constructCommand(self, param):
