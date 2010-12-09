@@ -57,9 +57,9 @@ class WHSentinelADCPInstrumentAgent(InstrumentAgent):
         self.event_topics["Agent"] = PubSubTopicResource.create("EventAgent" + self.instrument_id, "")
         self.state_topics["Agent"] = PubSubTopicResource.create("StateAgent" + self.instrument_id, "")
 
-        self.output_topics["Device"] = PubSubTopicResource.create("OutputDevice", "")
-        self.event_topics["Device"] = PubSubTopicResource.create("EventDevice" + self.instrument_id, "")
-        self.state_topics["Device"] = PubSubTopicResource.create("StateDevice" + self.instrument_id, "")
+        self.output_topics["Device"] = PubSubTopicResource.create("WHSentinelADCPOutputDevice", "")
+        self.event_topics["Device"] = PubSubTopicResource.create("WHSentinelADCPEventDevice" + self.instrument_id, "")
+        self.state_topics["Device"] = PubSubTopicResource.create("WHSentinelADCPStateDevice" + self.instrument_id, "")
 
         for key in self.output_topics.keys():
             self.output_topics[key] = yield self.pubsub_client.define_topic(self.output_topics[key])
