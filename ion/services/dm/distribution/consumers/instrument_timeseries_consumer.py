@@ -106,7 +106,8 @@ line_template = '''
   </head>
   <body onload="doLoad()" style="font-family: Arial;border: 0 none;">
     <div id="visualization" style="width: 800px; height: 600px;"></div>
-    %(msg)s
+    %(timestamp)s
+    %(output)s
   </body>
 </html>
 '''
@@ -119,40 +120,57 @@ class InstrumentTimeseriesConsumer(base_consumer.BaseConsumer):
     """
     def customize_consumer(self):
         self.pdata=[]
+        self.description = [('v1','number', 'value1'),
+                            ('v2','number', 'value2'),
+                            ('v3','number', 'value3'),
+                            ('v4','number', 'value4')
+                           ]
+        self.Output=''
+
 
     def ondata(self, data, notification, timestamp, queue='', max_points=15, **kwargs):
 
         if data.find('#') != -1:
             data = data.lstrip('#')
             vals = data.split(',')
-            description = [('v1','number', 'value1'),
-                           ('v2','number', 'value2'),
-                           ('v3','number', 'value3')
-                          ]
+            self.description = [('v1','number', 'value1'),
+                                ('v2','number', 'value2'),
+                                ('v3','number', 'value3')
+                               ]
             self.pdata.append([float(vals[0]),float(vals[1]),float(vals[2])])
+            log.debug('VALS: %s'  % vals)
+            dlen = len(self.pdata)
+            if dlen > max_points:
+                self.pdata = self.pdata[dlen-max_points : ]
         else:
-            vals = data.split(',')
-            description = [('v1','number', 'value1'),
-                           ('v2','number', 'value2'),
-                           ('v3','number', 'value3'),
-                           ('v4','number', 'value4')
-                          ]
-            self.pdata.append([float(vals[0]),float(vals[1]),float(vals[2]),float(vals[3])])
+            stripped = data.replace('.', '')
+            stripped = stripped.replace(' ', '')
+            stripped = stripped.replace(',', '')
+            log.error("data=%s" %stripped)
+            if stripped.isdigit():
+                vals = data.split(',')
+                self.description = [('v1','number', 'value1'),
+                                    ('v2','number', 'value2'),
+                                    ('v3','number', 'value3'),
+                                    ('v4','number', 'value4')
+                                   ]
+                self.pdata.append([float(vals[0]),float(vals[1]),float(vals[2]),float(vals[3])])
+                log.debug('VALS: %s'  % vals)
+                dlen = len(self.pdata)
+                if dlen > max_points:
+                    self.pdata = self.pdata[dlen-max_points : ]
+            else:
+                self.Output = self.Output + '<p>' + data + '</p>'
 
-        log.debug('VALS: %s'  % vals)
-        dlen = len(self.pdata)
-        if dlen > max_points:
-            self.pdata = self.pdata[dlen-max_points : ]
-
-        data_table = gviz_api.DataTable(description)
+        data_table = gviz_api.DataTable(self.description)
         data_table.LoadData(self.pdata)
         #json = data_table.ToJSon(columns_order=("name", "salary"),order_by="salary")
         json = data_table.ToJSon()
 
         # Make message for the screen below
-        msg = '<p>Timestamp: %s </p>\n' % pu.currenttime()
+        timestamp = '<p>Timestimp: %s </p>\n\n\n' % pu.currenttime()
 
-        page = line_template % {'msg':msg,'json':json}
+        page = line_template % {'timestamp':timestamp, 'json':json, 'output':self.Output}
 
         self.queue_result(queue,page,'Google Viz of message counts')
 
