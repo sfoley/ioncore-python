@@ -38,12 +38,25 @@ dm_services = ioninit.get_config('services_cfg', CONF)
 
 
 
+def eval_start_arguments():
+    global WEB_PORT
+    global INSTRUMENT_NAME
+    
+    WEB_PORT = int(ioninit.cont_args.get('WebPort', 8180))
+    INSTRUMENT_NAME = ioninit.cont_args.get('instName', '')
+    print "##### Use WebPort: " + str(WEB_PORT)
+    print "##### Use instrument Name: " + str(INSTRUMENT_NAME)
+
+
 @defer.inlineCallbacks
 def start():
     """
     Main function of bootstrap. Starts DM pubsub...
     """
     logging.info("ION DM PubSub bootstrapping now...")
+
+    eval_start_arguments()
+    
     startsvcs = []
     #startsvcs.extend(dm_services)
     sup = yield bootstrap.bootstrap(ion_messaging, startsvcs)
@@ -57,7 +70,7 @@ def start():
     dpsc = pubsub_service.DataPubsubClient(proc=sup)
 
     subscription = SubscriptionResource()
-    subscription.topic1 = PubSubTopicResource.create('OutputDevice','')
+    subscription.topic1 = PubSubTopicResource.create(INSTRUMENT_NAME+'OutputDevice','')
 
     # Use the example consumer to create events... graph the number of events
     '''
@@ -80,7 +93,7 @@ def start():
             {'module':'ion.services.dm.presentation.web_viz_consumer',
                 'consumerclass':'WebVizConsumer',\
                 'attach':[['consumer1','queue']],
-                'process parameters':{'port':8180}
+                'process parameters':{'port':WEB_PORT}
             }
 
         }
@@ -88,7 +101,7 @@ def start():
 
     subscription = yield dpsc.define_subscription(subscription)
     linfo = '\n================================================\n'
-    linfo+= 'Open your web browser and look at: http://127.0.0.1:8180/ \n'
+    linfo+= 'Open your web browser and look at: http://127.0.0.1:'+str(WEB_PORT)+'/ \n'
     linfo+= '================================================\n'
     logging.info(linfo)
 
