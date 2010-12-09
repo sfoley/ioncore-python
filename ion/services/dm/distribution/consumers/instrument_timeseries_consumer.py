@@ -168,7 +168,7 @@ class InstrumentTimeseriesConsumer(base_consumer.BaseConsumer):
         json = data_table.ToJSon()
 
         # Make message for the screen below
-        timestamp = '<p>Timestimp: %s </p>\n\n\n' % pu.currenttime()
+        timestamp = '<p>Timestamp: %s </p>\n\n\n' % pu.currenttime()
 
         page = line_template % {'timestamp':timestamp, 'json':json, 'output':self.Output}
 
