@@ -642,14 +642,14 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
             if (param not in self.__instrument_parameters):
                 # Getting rid of this
                 #yield self.reply_err(msg, "Could not set %s" % param)
-                error_msg = "Could not set " + str(param)
+                error_msg = "ERROR: Could not get " + str(param)
                 log.error(error_msg)
                 # NEED TO BREAK OUT HERE: don't send multiple responses
                 break;
             else:
                 result[param] = self.__instrument_parameters[param]
         if error_msg:
-            yield self.reply_err(msg, error_msg)
+            yield self.reply_ok(msg, error_msg)
         else:            
             yield self.reply_ok(msg, result)
 
@@ -684,7 +684,7 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
             if (param not in self.__instrument_parameters):
                 # Getting rid of this
                 #yield self.reply_err(msg, "Could not set %s" % param)
-                error_msg = "Could not set " + str(param)
+                error_msg = "ERROR: Could not set " + str(param)
                 log.error(error_msg)
                 # NEED TO BREAK OUT HERE: don't send multiple responses
                 break;
@@ -701,12 +701,12 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
                     self.enqueueCmd(command)
                     self.hsm.sendEvent('eventCommandReceived')
                 else:
-                    error_msg = str(param) + " is not a settable parameter"
+                    error_msg = "ERROR" + str(param) + " is not a settable parameter"
                     log.error("%s is not a settable parameter" % str(param))
                     log.error(error_msg)
                     
         if error_msg:
-            yield self.reply_err(msg, error_msg)
+            yield self.reply_ok(msg, error_msg)
         else:            
             yield self.reply_ok(msg, content)
 
@@ -723,7 +723,7 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
         log.info("op_execute content: %s" %content)
 
         if ((content == ()) or (content == [])):
-            yield self.reply_err(msg, "Empty command")
+            yield self.reply_ok(msg, "ERROR: Empty command")
             return
         
         agentCommands = []
@@ -732,7 +732,7 @@ class WHSentinelADCPInstrumentDriver(InstrumentDriver):
         value = ''
         if command not in instrument_commands:
             log.error("Invalid Command: %s" %command)
-            yield self.reply_err(msg, "Invalid Command")
+            yield self.reply_ok(msg, "ERROR: Invalid Command " + str(command))
         else:
             log.debug("op_execute translating command: %s" % command)
             instCommand = self.instCmdXlator.translate(command)
