@@ -130,7 +130,7 @@ class InstrumentTimeseriesConsumer(base_consumer.BaseConsumer):
 
     def ondata(self, data, notification, timestamp, queue='', max_points=15, **kwargs):
 
-        if data.find('#') != -1:
+        if data.find('#') != -1:   # samples from real sbe49 instrument
             data = data.lstrip('#')
             vals = data.split(',')
             self.description = [('v1','number', 'value1'),
