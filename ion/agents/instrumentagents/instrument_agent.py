@@ -428,8 +428,15 @@ class InstrumentAgent(ResourceAgent):
         """
         assert(isinstance(content, tuple)), "Bad IA op_execute_instrument type"
         try:
-            yield self.driver_client.execute(content)
-            yield self.reply_ok(msg)
+            response = {}
+            result = yield self.driver_client.execute(content)
+            if result == {}:
+                yield self.reply_err(msg, "Could not execute %s" % content)
+                return
+            else:
+                response.update(result)
+            assert(response != {})
+            yield self.reply_ok(msg, response)
         except ReceivedError, re:
             yield self.reply_err(msg, "Failure, response is: %s"
                                  % re.msg_content['value'])
@@ -620,6 +627,7 @@ class InstrumentAgentClient(ResourceAgentClient):
         assert(isinstance(command, list))
         (content, headers, message) = yield self.rpc_send('execute_instrument',
                                                           command)
+        log.debug("message = " + str(message))
         defer.returnValue(content)
 
     @defer.inlineCallbacks
