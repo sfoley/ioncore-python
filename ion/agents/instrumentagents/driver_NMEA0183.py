@@ -224,7 +224,7 @@ class CfgNMEADevice(object):
 
     # 1 --- Fix Mode ------------------------------------
         x = 'FIX_MODE'
-        c = toSet.get(x, self.cfgParams.get(x, self.defParams[x]))[0]
+        c = toSet.get(x, self.cfgParams.get(x, self.defParams[x]))
         if 'A23'.find(c) > -1:
             str.append(c)
         else:
@@ -282,7 +282,7 @@ class CfgNMEADevice(object):
 
     # 9 --- Differential mode ---------------------------
         x = 'DIFFMODE'
-        c = toSet.get(x, self.cfgParams.get(x, self.defParams[x]))[0]
+        c = toSet.get(x, self.cfgParams.get(x, self.defParams[x]))
         if 'AD'.find(c) > -1:
             str.append(c)
         else:
@@ -1550,12 +1550,16 @@ class NMEADeviceDriver(InstrumentDriver):
         result = {}
         set_errors = False
 
+        log.debug("*** params to handle: %s", params)
         for (chan, param) in params.keys():
             val = params[(chan, param)]
+            if (val == None) or (val == ''):
+                continue
             if self._device_NMEA_config.defParams.get(param):
                 if param in self._device_NMEA_config.validSet:
                     # Do PGRMO stuff here
                     if val in [ON, OFF]:
+                        log.debug("*** on/off val: %s", val)
                         self._device_NMEA_config.SetSentences({param: val})
                         self._device_NMEA_config.cfgParams[param] = val
                         result[(chan, param)] = InstErrorCode.OK
@@ -1565,6 +1569,7 @@ class NMEADeviceDriver(InstrumentDriver):
                 else:
                     # Doing PGRMC stuff here
                     if param in self._device_NMEA_config.cfgParams.keys():
+                        log.debug("*** PGRMC stuff param: %s", param)
                         self._device_NMEA_config.SendConfigToDevice({param: val})
                         self._device_NMEA_config.cfgParams[param] = val
                         result[(chan, param)] = InstErrorCode.OK
